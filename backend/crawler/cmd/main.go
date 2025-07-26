@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bufio"
+	"crawler/pkg/config"
 	"crawler/pkg/crawler"
 	"flag"
 	"log"
@@ -11,8 +11,13 @@ import (
 )
 
 func main() {
-	seedPath := flag.String("seed", "", "Path to seed list")
+	configPath := flag.String("config", "config/config.yaml", "Path to configuration file")
 	flag.Parse()
+
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
 
 	logger := log.New(os.Stdout, "crawler: ", log.LstdFlags|log.Lshortfile)
 
@@ -28,27 +33,10 @@ func main() {
 	crawlQueue := make(chan string)
 	URLCrawler := crawler.NewCrawler(crawlQueue, logger)
 
-	go func() {
-		if *seedPath == "" {
-			logger.Println("No seed path provided")
-			return
-		}
-		file, err := os.Open(*seedPath)
-		if err != nil {
-			logger.Println("Failed to seed urls: ", err)
-		}
-		defer file.Close()
-
-		scanner := bufio.NewScanner(file)
-
-		for scanner.Scan() {
-			url := scanner.Text()
-			URLCrawler.CrawlQueue <- url
-		}
-	}()
+	if cfg.Crawler.SeedPath != "" {
+		URLCrawler.LoadSeeds(cfg.Crawler.SeedPath)
+	}
 
 	logger.Println("Starting...")
-	for {
-		URLCrawler.ProcessURL(<-URLCrawler.CrawlQueue)
-	}
+	URLCrawler.Start()
 }

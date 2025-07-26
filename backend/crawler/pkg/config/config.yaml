@@ -1,0 +1,7 @@
+crawler:
+  seed_path: ""
+  worker_count: 250
+
+logging:
+  level: "info"
+  format: "json"
