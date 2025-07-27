@@ -4,17 +4,21 @@ import (
 	"bufio"
 	"log"
 	"os"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type Crawler struct {
-	CrawlQueue chan string
-	logger     *log.Logger
+	logger      *log.Logger
+	workerCount int
+	redisClient *redis.Client
 }
 
-func NewCrawler(crawlQueue chan string, logger *log.Logger) *Crawler {
+func NewCrawler(logger *log.Logger, workerCount int, redisClient *redis.Client) *Crawler {
 	return &Crawler{
-		crawlQueue,
 		logger,
+		workerCount,
+		redisClient,
 	}
 }
 
@@ -23,9 +27,6 @@ func (crawler *Crawler) ProcessURL(url string) {
 }
 
 func (crawler *Crawler) Start() {
-	for {
-		crawler.ProcessURL(<-crawler.CrawlQueue)
-	}
 }
 
 func (crawler *Crawler) LoadSeeds(seedPath string) {
