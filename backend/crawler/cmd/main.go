@@ -57,7 +57,7 @@ func main() {
 	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient, dbPool)
 
 	if cfg.Crawler.SeedPath != "" {
-		Crawler.LoadSeeds(cfg.Crawler.SeedPath)
+		Crawler.PublishSeedUrls(cfg.Crawler.SeedPath)
 	}
 
 	logger.Println("Starting...")
