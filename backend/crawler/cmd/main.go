@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crawler/pkg/config"
 	"crawler/pkg/crawler"
 	"crawler/pkg/queue"
@@ -10,14 +11,17 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
 
 func main() {
-	configPath := flag.String("config", "config/config.yaml", "Path to configuration file")
+	configPath := flag.String("config", "pkg/config/config.yaml", "Path to configuration file")
 	flag.Parse()
 
 	logger := log.New(os.Stdout, "crawler: ", log.LstdFlags|log.Lshortfile)
+
+	ctx := context.Background()
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -29,6 +33,18 @@ func main() {
 		logger.Fatalln("Error loading environment variables:", err)
 	}
 
+	redisClient, err := queue.NewRedisClient(os.Getenv("REDIS_URL"))
+	if err != nil {
+		logger.Fatalf("Failed to connect to Redis: %v", err)
+	}
+
+	dbPool, err := pgxpool.New(ctx, os.Getenv("POSTGRES_URL"))
+	if err != nil {
+		logger.Fatalf("Failed to connect to PostgreSQL: %v", err)
+	}
+
+	defer dbPool.Close()
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
 
@@ -38,12 +54,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	redisClient, err := queue.NewRedisClient(os.Getenv("REDIS_URL"))
-	if err != nil {
-		logger.Fatalf("Failed to connect to Redis: %v", err)
-	}
-
-	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient)
+	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient, dbPool)
 
 	if cfg.Crawler.SeedPath != "" {
 		Crawler.LoadSeeds(cfg.Crawler.SeedPath)

@@ -2,9 +2,11 @@ package crawler
 
 import (
 	"bufio"
+	"crawler/pkg/storage/database"
 	"log"
 	"os"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -12,13 +14,17 @@ type Crawler struct {
 	logger      *log.Logger
 	workerCount int
 	redisClient *redis.Client
+	queries     *database.Queries
 }
 
-func NewCrawler(logger *log.Logger, workerCount int, redisClient *redis.Client) *Crawler {
+func NewCrawler(logger *log.Logger, workerCount int, redisClient *redis.Client, dbPool *pgxpool.Pool) *Crawler {
+	queries := database.New(dbPool)
+
 	return &Crawler{
 		logger,
 		workerCount,
 		redisClient,
+		queries,
 	}
 }
 

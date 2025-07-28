@@ -1,0 +1,6 @@
+CREATE TABLE urls (
+    id TEXT PRIMARY KEY,
+    url TEXT NOT NULL UNIQUE,
+    status_code INTEGER,
+    fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
