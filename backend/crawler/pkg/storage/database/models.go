@@ -11,6 +11,6 @@ import (
 type Url struct {
 	ID         string
 	Url        string
-	StatusCode pgtype.Int4
+	StatusCode int32
 	FetchedAt  pgtype.Timestamp
 }

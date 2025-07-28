@@ -14,7 +14,7 @@ import (
 type CreateUrlsParams struct {
 	ID         string
 	Url        string
-	StatusCode pgtype.Int4
+	StatusCode int32
 	FetchedAt  pgtype.Timestamp
 }
 
@@ -86,7 +86,7 @@ RETURNING id, url, status_code, fetched_at
 type UpdateUrlParams struct {
 	ID         string
 	Url        string
-	StatusCode pgtype.Int4
+	StatusCode int32
 }
 
 func (q *Queries) UpdateUrl(ctx context.Context, arg UpdateUrlParams) error {
