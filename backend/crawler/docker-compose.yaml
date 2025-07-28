@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres
+    container_name: search-engine-postgres
+    ports:
+      - "8750:5432"
+    environment:
+      POSTGRES_DB: search-engine
+      POSTGRES_USER: searchEngine
+      POSTGRES_PASSWORD: searchEngine
+    volumes:
+      - search_engine_data:/var/lib/postgresql/data
+
+  valkey:
+    image: valkey/valkey
+    container_name: search-engine-valkey
+    ports:
+      - "9876:6379"
+
+volumes:
+  search_engine_data:
