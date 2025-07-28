@@ -2,10 +2,12 @@ package crawler
 
 import (
 	"bufio"
+	"context"
 	"crawler/pkg/storage/database"
 	"log"
 	"os"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -37,19 +39,29 @@ func (crawler *Crawler) Start() {
 
 func (crawler *Crawler) LoadSeeds(seedPath string) {
 	crawler.logger.Println("Publishing Seed URLs...")
-	go func() {
-		file, err := os.Open(seedPath)
-		if err != nil {
-			crawler.logger.Println("Failed to seed urls: ", err)
-		}
-		defer file.Close()
 
-		scanner := bufio.NewScanner(file)
+	urlParamsArr := make([]database.CreateUrlsParams, 0)
 
-		for scanner.Scan() {
-			url := scanner.Text()
-			crawler.logger.Println("Got link from seed", url)
-			//TODO: add the urls to the queues and persistent storages
+	file, err := os.Open(seedPath)
+	if err != nil {
+		crawler.logger.Println("Failed to seed urls: ", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		url := scanner.Text()
+		urlParams := database.CreateUrlsParams{
+			ID:  uuid.New().String(),
+			Url: url,
 		}
-	}()
+		urlParamsArr = append(urlParamsArr, urlParams)
+	}
+
+	_, err = crawler.queries.CreateUrls(context.Background(), urlParamsArr)
+	if err != nil {
+		crawler.logger.Fatalln("Failed to seed urls:", err)
+		return
+	}
 }
