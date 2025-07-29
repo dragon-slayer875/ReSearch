@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -21,30 +22,38 @@ type Crawler struct {
 	logger      *log.Logger
 	workerCount int
 	redisClient *redis.Client
-	queries     *database.Queries
+	dbPool      *pgxpool.Pool
 }
 
 func NewCrawler(logger *log.Logger, workerCount int, redisClient *redis.Client, dbPool *pgxpool.Pool) *Crawler {
-	queries := database.New(dbPool)
-
 	return &Crawler{
 		logger,
 		workerCount,
 		redisClient,
-		queries,
+		dbPool,
 	}
 }
 
-func (crawler *Crawler) ProcessURL(url string) ([]string, error) {
-	crawler.logger.Println("Processing URL:", url)
-	resp, err := http.Get(url)
+func (crawler *Crawler) ProcessURL(urlString string) ([]string, error) {
+	crawler.logger.Println("Processing URL:", urlString)
+
+	parsedUrl, err := url.Parse(urlString)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL %s: %w", urlString, err)
+	}
+
+	if parsedUrl.Scheme == "" {
+		parsedUrl.Scheme = "http"
+	}
+
+	resp, err := http.Get(urlString)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch URL %s: %s", url, resp.Status)
+		return nil, fmt.Errorf("failed to fetch URL %s: %s", urlString, resp.Status)
 	}
 
 	var discoveredUrls []string
@@ -69,6 +78,7 @@ func (crawler *Crawler) ProcessURL(url string) ([]string, error) {
 			}
 		}
 	}
+
 }
 
 func (crawler *Crawler) Start() {
@@ -121,7 +131,7 @@ func (crawler *Crawler) worker() {
 		url, err := crawler.getNextUrl()
 		if err != nil {
 			crawler.logger.Println(err)
-			time.Sleep(1 * time.Second)
+			time.Sleep(2 * time.Second)
 			continue
 		}
 
@@ -131,12 +141,18 @@ func (crawler *Crawler) worker() {
 			continue
 		}
 
-		crawler.handleDiscoveredUrls(discoveredUrls)
+		if err = crawler.updateStorage(url, discoveredUrls); err != nil {
+			crawler.logger.Println("Error updating storage for URL:", url, "Error:", err)
+			continue
+		}
+		crawler.redisClient.ZRem(context.Background(), "crawl:processing", url)
+		crawler.queueDiscoveredUrls(discoveredUrls)
 	}
 }
 
 func (crawler *Crawler) getNextUrl() (string, error) {
-	result, err := crawler.redisClient.BRPop(context.Background(), time.Second*10, "crawl:queue").Result()
+	ctx := context.Background()
+	result, err := crawler.redisClient.BRPop(ctx, time.Second*10, "crawl:queue").Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return "", fmt.Errorf("no URLs in queue")
@@ -144,11 +160,16 @@ func (crawler *Crawler) getNextUrl() (string, error) {
 		return "", fmt.Errorf("error fetching URL from queue: %v", err)
 	}
 
+	crawler.redisClient.ZAdd(ctx, "crawl:processing", redis.Z{
+		Score:  float64(time.Now().Unix()),
+		Member: result[1],
+	})
+
 	// 1 is url, 0 is queue name
 	return result[1], nil
 }
 
-func (crawler *Crawler) handleDiscoveredUrls(urls []string) {
+func (crawler *Crawler) queueDiscoveredUrls(urls []string) {
 	if len(urls) == 0 {
 		return
 	}
@@ -169,4 +190,40 @@ func (crawler *Crawler) handleDiscoveredUrls(urls []string) {
 		crawler.logger.Println("Failed to handle discovered URLs:", err)
 	}
 
+}
+
+func (crawler *Crawler) updateStorage(urlString string, discoveredUrls []string) error {
+	ctx := context.Background()
+
+	tx, err := crawler.dbPool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer tx.Rollback(ctx)
+
+	queries := &database.Queries{}
+	queriesWithTx := queries.WithTx(tx)
+
+	if err = queriesWithTx.UpdateUrlStatus(ctx, database.UpdateUrlStatusParams{
+		Url:         urlString,
+		CrawlStatus: database.CrawlStatusCompleted,
+	}); err != nil {
+		return fmt.Errorf("failed to update URL status: %w", err)
+	}
+
+	var discoveredUrlsParams []database.CreateUrlsParams
+
+	for _, discoveredUrl := range discoveredUrls {
+		discoveredUrlsParams = append(discoveredUrlsParams, database.CreateUrlsParams{
+			Url:         discoveredUrl,
+			CrawlStatus: database.CrawlStatusPending,
+		})
+	}
+
+	if _, err = queriesWithTx.CreateUrls(ctx, discoveredUrlsParams); err != nil {
+		return fmt.Errorf("failed to create discovered URLs: %w", err)
+	}
+
+	return tx.Commit(ctx)
 }

@@ -54,7 +54,6 @@ func (ns NullCrawlStatus) Value() (driver.Value, error) {
 }
 
 type Url struct {
-	ID          string
 	Url         string
 	CrawlStatus CrawlStatus
 	FetchedAt   pgtype.Timestamp

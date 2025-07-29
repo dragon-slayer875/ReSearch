@@ -12,7 +12,6 @@ import (
 )
 
 type CreateUrlsParams struct {
-	ID          string
 	Url         string
 	CrawlStatus CrawlStatus
 	FetchedAt   pgtype.Timestamp
@@ -20,33 +19,28 @@ type CreateUrlsParams struct {
 
 const deleteUrl = `-- name: DeleteUrl :exec
 DELETE FROM urls
-WHERE id = $1
+WHERE url = $1
 `
 
-func (q *Queries) DeleteUrl(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, deleteUrl, id)
+func (q *Queries) DeleteUrl(ctx context.Context, url string) error {
+	_, err := q.db.Exec(ctx, deleteUrl, url)
 	return err
 }
 
 const getUrl = `-- name: GetUrl :one
-SELECT id, url, crawl_status, fetched_at FROM urls
-WHERE id = $1 LIMIT 1
+SELECT url, crawl_status, fetched_at FROM urls
+WHERE url = $1 LIMIT 1
 `
 
-func (q *Queries) GetUrl(ctx context.Context, id string) (Url, error) {
-	row := q.db.QueryRow(ctx, getUrl, id)
+func (q *Queries) GetUrl(ctx context.Context, url string) (Url, error) {
+	row := q.db.QueryRow(ctx, getUrl, url)
 	var i Url
-	err := row.Scan(
-		&i.ID,
-		&i.Url,
-		&i.CrawlStatus,
-		&i.FetchedAt,
-	)
+	err := row.Scan(&i.Url, &i.CrawlStatus, &i.FetchedAt)
 	return i, err
 }
 
 const listUrls = `-- name: ListUrls :many
-SELECT id, url, crawl_status, fetched_at FROM urls
+SELECT url, crawl_status, fetched_at FROM urls
 ORDER BY fetched_at DESC
 `
 
@@ -59,12 +53,7 @@ func (q *Queries) ListUrls(ctx context.Context) ([]Url, error) {
 	var items []Url
 	for rows.Next() {
 		var i Url
-		if err := rows.Scan(
-			&i.ID,
-			&i.Url,
-			&i.CrawlStatus,
-			&i.FetchedAt,
-		); err != nil {
+		if err := rows.Scan(&i.Url, &i.CrawlStatus, &i.FetchedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
