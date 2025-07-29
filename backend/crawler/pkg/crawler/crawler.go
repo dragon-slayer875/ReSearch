@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -37,15 +36,6 @@ func NewCrawler(logger *log.Logger, workerCount int, redisClient *redis.Client, 
 func (crawler *Crawler) ProcessURL(urlString string) ([]string, error) {
 	crawler.logger.Println("Processing URL:", urlString)
 
-	parsedUrl, err := url.Parse(urlString)
-	if err != nil {
-		return nil, fmt.Errorf("invalid URL %s: %w", urlString, err)
-	}
-
-	if parsedUrl.Scheme == "" {
-		parsedUrl.Scheme = "http"
-	}
-
 	resp, err := http.Get(urlString)
 	if err != nil {
 		return nil, err
@@ -71,7 +61,17 @@ func (crawler *Crawler) ProcessURL(urlString string) ([]string, error) {
 			if token.Data == "a" {
 				for _, attr := range token.Attr {
 					if attr.Key == "href" {
-						discoveredUrls = append(discoveredUrls, attr.Val)
+						validatedUrl, err := validateUrl(urlString, attr.Val)
+						if err != nil {
+							crawler.logger.Println("Invalid URL found:", attr.Val, "Error:", err)
+						} else {
+							urlCrawlBool, err := shouldCrawlUrl(validatedUrl)
+							if err != nil {
+								crawler.logger.Println("Error checking if URL should be crawled:", validatedUrl, "Error:", err)
+							} else if urlCrawlBool {
+								discoveredUrls = append(discoveredUrls, validatedUrl)
+							}
+						}
 						break
 					}
 				}
