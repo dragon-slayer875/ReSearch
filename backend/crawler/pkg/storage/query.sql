@@ -8,17 +8,15 @@ ORDER BY fetched_at DESC;
 
 -- name: CreateUrls :copyfrom
 INSERT INTO urls (
-  id, url, status_code, fetched_at
+  id, url, crawl_status, fetched_at
 ) VALUES (
   $1, $2, $3, $4
 );
 
--- name: UpdateUrl :exec
+-- name: UpdateUrlStatus :exec
 UPDATE urls
-  set url = $2,
-  status_code = $3
-WHERE id = $1
-RETURNING *;
+  SET crawl_status = $2
+WHERE url = $1;
 
 -- name: DeleteUrl :exec
 DELETE FROM urls

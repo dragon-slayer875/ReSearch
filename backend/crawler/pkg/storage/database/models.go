@@ -5,12 +5,57 @@
 package database
 
 import (
+	"database/sql/driver"
+	"fmt"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type CrawlStatus string
+
+const (
+	CrawlStatusPending   CrawlStatus = "pending"
+	CrawlStatusCompleted CrawlStatus = "completed"
+)
+
+func (e *CrawlStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CrawlStatus(s)
+	case string:
+		*e = CrawlStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CrawlStatus: %T", src)
+	}
+	return nil
+}
+
+type NullCrawlStatus struct {
+	CrawlStatus CrawlStatus
+	Valid       bool // Valid is true if CrawlStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCrawlStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.CrawlStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CrawlStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCrawlStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CrawlStatus), nil
+}
+
 type Url struct {
-	ID         string
-	Url        string
-	StatusCode int32
-	FetchedAt  pgtype.Timestamp
+	ID          string
+	Url         string
+	CrawlStatus CrawlStatus
+	FetchedAt   pgtype.Timestamp
 }

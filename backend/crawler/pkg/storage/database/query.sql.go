@@ -12,10 +12,10 @@ import (
 )
 
 type CreateUrlsParams struct {
-	ID         string
-	Url        string
-	StatusCode int32
-	FetchedAt  pgtype.Timestamp
+	ID          string
+	Url         string
+	CrawlStatus CrawlStatus
+	FetchedAt   pgtype.Timestamp
 }
 
 const deleteUrl = `-- name: DeleteUrl :exec
@@ -29,7 +29,7 @@ func (q *Queries) DeleteUrl(ctx context.Context, id string) error {
 }
 
 const getUrl = `-- name: GetUrl :one
-SELECT id, url, status_code, fetched_at FROM urls
+SELECT id, url, crawl_status, fetched_at FROM urls
 WHERE id = $1 LIMIT 1
 `
 
@@ -39,14 +39,14 @@ func (q *Queries) GetUrl(ctx context.Context, id string) (Url, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.Url,
-		&i.StatusCode,
+		&i.CrawlStatus,
 		&i.FetchedAt,
 	)
 	return i, err
 }
 
 const listUrls = `-- name: ListUrls :many
-SELECT id, url, status_code, fetched_at FROM urls
+SELECT id, url, crawl_status, fetched_at FROM urls
 ORDER BY fetched_at DESC
 `
 
@@ -62,7 +62,7 @@ func (q *Queries) ListUrls(ctx context.Context) ([]Url, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.Url,
-			&i.StatusCode,
+			&i.CrawlStatus,
 			&i.FetchedAt,
 		); err != nil {
 			return nil, err
@@ -75,21 +75,18 @@ func (q *Queries) ListUrls(ctx context.Context) ([]Url, error) {
 	return items, nil
 }
 
-const updateUrl = `-- name: UpdateUrl :exec
+const updateUrlStatus = `-- name: UpdateUrlStatus :exec
 UPDATE urls
-  set url = $2,
-  status_code = $3
-WHERE id = $1
-RETURNING id, url, status_code, fetched_at
+  SET crawl_status = $2
+WHERE url = $1
 `
 
-type UpdateUrlParams struct {
-	ID         string
-	Url        string
-	StatusCode int32
+type UpdateUrlStatusParams struct {
+	Url         string
+	CrawlStatus CrawlStatus
 }
 
-func (q *Queries) UpdateUrl(ctx context.Context, arg UpdateUrlParams) error {
-	_, err := q.db.Exec(ctx, updateUrl, arg.ID, arg.Url, arg.StatusCode)
+func (q *Queries) UpdateUrlStatus(ctx context.Context, arg UpdateUrlStatusParams) error {
+	_, err := q.db.Exec(ctx, updateUrlStatus, arg.Url, arg.CrawlStatus)
 	return err
 }
