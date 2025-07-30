@@ -34,8 +34,6 @@ func NewCrawler(logger *log.Logger, workerCount int, redisClient *redis.Client, 
 }
 
 func (crawler *Crawler) ProcessURL(urlString string) ([]string, error) {
-	crawler.logger.Println("Processing URL:", urlString)
-
 	resp, err := http.Get(urlString)
 	if err != nil {
 		return nil, err
@@ -138,9 +136,16 @@ func (crawler *Crawler) worker() {
 		domain, err := extractDomainFromUrl(url)
 		if err != nil {
 			crawler.logger.Println("Error extracting domain from URL:", url, "Error:", err)
+			continue
 		}
 
-		if !crawler.isPolite(domain) {
+		robotRules, err := GetRobotRules(domain)
+		if err != nil {
+			crawler.logger.Println("Error getting robot rules for", url, ". Error:", err)
+			robotRules = defaultRobotRules()
+		}
+
+		if !robotRules.isPolite(domain, crawler.redisClient) {
 			if err = crawler.requeueUrl(url); err != nil {
 				crawler.logger.Println("Error requeuing URL:", url, "Error:", err)
 			}
@@ -160,6 +165,7 @@ func (crawler *Crawler) worker() {
 		crawler.redisClient.ZRem(context.Background(), "crawl:processing", url)
 		crawler.updateDomainDelay(domain)
 		crawler.queueDiscoveredUrls(discoveredUrls)
+		crawler.logger.Println("Processed URL:", url)
 	}
 }
 
@@ -253,18 +259,6 @@ func (crawler *Crawler) requeueUrl(urlString string) error {
 	}
 
 	return nil
-}
-
-func (crawler *Crawler) isPolite(domainString string) bool {
-	lastCrawlTime, err := crawler.redisClient.HGet(context.Background(), "crawl:domain_delays", domainString).Int64()
-	if err != nil {
-		return true
-	}
-
-	minDelay := 10 * time.Second
-	timeSinceLastCrawl := time.Since(time.Unix(lastCrawlTime, 0))
-
-	return timeSinceLastCrawl >= minDelay
 }
 
 func (crawler *Crawler) updateDomainDelay(domainString string) error {
