@@ -28,15 +28,6 @@ func defaultRobotRules() *RobotRules {
 	}
 }
 
-func GetRobotRules(domainString string) (*RobotRules, error) {
-	robotRules, err := fetchRobotRulesFromWeb(domainString)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get robots.txt for %s: %w", domainString, err)
-	}
-
-	return robotRules, nil
-}
-
 func fetchRobotRulesFromWeb(domainString string) (*RobotRules, error) {
 	resp, err := http.Get(fmt.Sprintf("http://%s/robots.txt", domainString))
 	if err != nil {

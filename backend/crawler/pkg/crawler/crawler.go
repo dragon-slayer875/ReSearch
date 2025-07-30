@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crawler/pkg/storage/database"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -139,7 +140,7 @@ func (crawler *Crawler) worker() {
 			continue
 		}
 
-		robotRules, err := GetRobotRules(domain)
+		robotRules, err := crawler.GetRobotRules(domain)
 		if err != nil {
 			crawler.logger.Println("Error getting robot rules for", url, ". Error:", err)
 			robotRules = defaultRobotRules()
@@ -162,7 +163,11 @@ func (crawler *Crawler) worker() {
 			crawler.logger.Println("Error updating storage for URL:", url, "Error:", err)
 			continue
 		}
+
+		robotRulesJson, _ := json.Marshal(robotRules)
+
 		crawler.redisClient.ZRem(context.Background(), "crawl:processing", url)
+		crawler.redisClient.Set(context.Background(), "robots:"+domain, string(robotRulesJson), time.Hour*4)
 		crawler.updateDomainDelay(domain)
 		crawler.queueDiscoveredUrls(discoveredUrls)
 		crawler.logger.Println("Processed URL:", url)
@@ -269,4 +274,26 @@ func (crawler *Crawler) updateDomainDelay(domainString string) error {
 	}
 
 	return nil
+}
+
+func (crawler *Crawler) GetRobotRules(domainString string) (*RobotRules, error) {
+	robotRules := &RobotRules{}
+
+	robotRulesJson, err := crawler.redisClient.Get(context.Background(), "robots:"+domainString).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("failed to get robots.txt from Redis for %s: %w", domainString, err)
+	}
+
+	if err = json.Unmarshal([]byte(robotRulesJson), robotRules); err == nil {
+		return robotRules, nil
+	} else if !errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("failed to unmarshal robots.txt for %s: %w, %s", domainString, err, robotRulesJson)
+	}
+
+	robotRules, err = fetchRobotRulesFromWeb(domainString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get robots.txt for %s: %w", domainString, err)
+	}
+
+	return robotRules, nil
 }
