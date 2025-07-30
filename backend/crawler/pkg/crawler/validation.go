@@ -43,7 +43,7 @@ func validateUrl(parentUrl, dirtyUrl string) (string, error) {
 	return parsedDirtyUrl.String(), nil
 }
 
-func shouldCrawlUrl(urlString string) (bool, error) {
+func isUrlOfAllowedResourceType(urlString string) (bool, error) {
 	commonWebAndImgExtensions := []string{
 		".html", ".htm", ".php", ".asp", ".aspx", ".jsp",
 		".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp",
@@ -82,4 +82,17 @@ func shouldCrawlUrl(urlString string) (bool, error) {
 	}
 
 	return false, nil
+}
+
+func extractDomainFromUrl(urlString string) (string, error) {
+	parsedUrl, err := url.Parse(urlString)
+	if err != nil {
+		return "", fmt.Errorf("invalid URL %s: %w", urlString, err)
+	}
+
+	if parsedUrl.Host == "" {
+		return "", fmt.Errorf("URL %s does not contain a host", urlString)
+	}
+
+	return parsedUrl.Host, nil
 }

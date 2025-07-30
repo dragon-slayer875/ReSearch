@@ -65,10 +65,10 @@ func (crawler *Crawler) ProcessURL(urlString string) ([]string, error) {
 						if err != nil {
 							crawler.logger.Println("Invalid URL found:", attr.Val, "Error:", err)
 						} else {
-							urlCrawlBool, err := shouldCrawlUrl(validatedUrl)
+							isAllowedResource, err := isUrlOfAllowedResourceType(validatedUrl)
 							if err != nil {
 								crawler.logger.Println("Error checking if URL should be crawled:", validatedUrl, "Error:", err)
-							} else if urlCrawlBool {
+							} else if isAllowedResource {
 								discoveredUrls = append(discoveredUrls, validatedUrl)
 							}
 						}
@@ -135,6 +135,18 @@ func (crawler *Crawler) worker() {
 			continue
 		}
 
+		domain, err := extractDomainFromUrl(url)
+		if err != nil {
+			crawler.logger.Println("Error extracting domain from URL:", url, "Error:", err)
+		}
+
+		if !crawler.isPolite(domain) {
+			if err = crawler.requeueUrl(url); err != nil {
+				crawler.logger.Println("Error requeuing URL:", url, "Error:", err)
+			}
+			continue
+		}
+
 		discoveredUrls, err := crawler.ProcessURL(url)
 		if err != nil {
 			crawler.logger.Println("Error processing URL:", url, "Error:", err)
@@ -146,6 +158,7 @@ func (crawler *Crawler) worker() {
 			continue
 		}
 		crawler.redisClient.ZRem(context.Background(), "crawl:processing", url)
+		crawler.updateDomainDelay(domain)
 		crawler.queueDiscoveredUrls(discoveredUrls)
 	}
 }
@@ -226,4 +239,40 @@ func (crawler *Crawler) updateStorage(urlString string, discoveredUrls []string)
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (crawler *Crawler) requeueUrl(urlString string) error {
+	ctx := context.Background()
+
+	if err := crawler.redisClient.LPush(ctx, "crawl:queue", urlString).Err(); err != nil {
+		return fmt.Errorf("failed to requeue URL %s: %w", urlString, err)
+	}
+
+	if err := crawler.redisClient.ZRem(ctx, "crawl:processing", urlString).Err(); err != nil {
+		return fmt.Errorf("failed to remove URL from processing queue %s: %w", urlString, err)
+	}
+
+	return nil
+}
+
+func (crawler *Crawler) isPolite(domainString string) bool {
+	lastCrawlTime, err := crawler.redisClient.HGet(context.Background(), "crawl:domain_delays", domainString).Int64()
+	if err != nil {
+		return true
+	}
+
+	minDelay := 10 * time.Second
+	timeSinceLastCrawl := time.Since(time.Unix(lastCrawlTime, 0))
+
+	return timeSinceLastCrawl >= minDelay
+}
+
+func (crawler *Crawler) updateDomainDelay(domainString string) error {
+	ctx := context.Background()
+
+	if err := crawler.redisClient.HSet(ctx, "crawl:domain_delays", domainString, time.Now().Unix()).Err(); err != nil {
+		return fmt.Errorf("failed to update domain delay for %s: %w", domainString, err)
+	}
+
+	return nil
 }
