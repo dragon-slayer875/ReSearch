@@ -153,6 +153,11 @@ func (crawler *Crawler) worker() {
 			continue
 		}
 
+		if !robotRules.isAllowed(url) {
+			crawler.logger.Println("URL not allowed by robots.txt:", url)
+			continue
+		}
+
 		discoveredUrls, err := crawler.ProcessURL(url)
 		if err != nil {
 			crawler.logger.Println("Error processing URL:", url, "Error:", err)

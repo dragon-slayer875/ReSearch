@@ -64,6 +64,7 @@ func fetchRobotRulesFromWeb(domainString string) (*RobotRules, error) {
 
 			if strings.HasPrefix(strings.ToLower(line), "allow:") {
 				allowPath := strings.TrimSpace(strings.TrimPrefix(line, "Allow:"))
+				allowPath = fmt.Sprintf("http://%s%s", domainString, allowPath)
 				if allowPath != "" {
 					robotRules.Allow = append(robotRules.Allow, allowPath)
 				}
@@ -71,6 +72,7 @@ func fetchRobotRulesFromWeb(domainString string) (*RobotRules, error) {
 
 			if strings.HasPrefix(strings.ToLower(line), "disallow:") {
 				disallowPath := strings.TrimSpace(strings.TrimPrefix(line, "Disallow:"))
+				disallowPath = fmt.Sprintf("http://%s%s", domainString, disallowPath)
 				if disallowPath != "" {
 					robotRules.Disallow = append(robotRules.Disallow, disallowPath)
 				}
@@ -112,4 +114,20 @@ func (robotRules *RobotRules) isPolite(domainString string, redisClient *redis.C
 	timeSinceLastCrawl := time.Since(time.Unix(lastCrawlTime, 0))
 
 	return timeSinceLastCrawl >= minDelay
+}
+
+func (robotRules *RobotRules) isAllowed(url string) bool {
+	for _, allowedPath := range robotRules.Allow {
+		if strings.HasPrefix(url, allowedPath) {
+			return true
+		}
+	}
+
+	for _, disallowedPath := range robotRules.Disallow {
+		if strings.HasPrefix(url, disallowedPath) {
+			return false
+		}
+	}
+
+	return len(robotRules.Disallow) == 0
 }
