@@ -129,5 +129,5 @@ func (robotRules *RobotRules) isAllowed(url string) bool {
 		}
 	}
 
-	return len(robotRules.Disallow) == 0
+	return true
 }
