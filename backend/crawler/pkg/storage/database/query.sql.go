@@ -11,10 +11,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createRobotRules = `-- name: CreateRobotRules :exec
+INSERT INTO robot_rules (
+  domain, rules, fetched_at
+) VALUES (
+  $1, $2, $3
+)
+`
+
+type CreateRobotRulesParams struct {
+	Domain    string
+	Rules     []byte
+	FetchedAt pgtype.Timestamp
+}
+
+func (q *Queries) CreateRobotRules(ctx context.Context, arg CreateRobotRulesParams) error {
+	_, err := q.db.Exec(ctx, createRobotRules, arg.Domain, arg.Rules, arg.FetchedAt)
+	return err
+}
+
 type CreateUrlsParams struct {
-	Url         string
-	CrawlStatus CrawlStatus
-	FetchedAt   pgtype.Timestamp
+	Url       string
+	FetchedAt pgtype.Timestamp
 }
 
 const deleteUrl = `-- name: DeleteUrl :exec
@@ -27,55 +45,59 @@ func (q *Queries) DeleteUrl(ctx context.Context, url string) error {
 	return err
 }
 
+const getRobotRules = `-- name: GetRobotRules :one
+SELECT domain, rules, fetched_at FROM robot_rules
+WHERE domain = $1
+`
+
+func (q *Queries) GetRobotRules(ctx context.Context, domain string) (RobotRule, error) {
+	row := q.db.QueryRow(ctx, getRobotRules, domain)
+	var i RobotRule
+	err := row.Scan(&i.Domain, &i.Rules, &i.FetchedAt)
+	return i, err
+}
+
 const getUrl = `-- name: GetUrl :one
-SELECT url, crawl_status, fetched_at FROM urls
+SELECT url, fetched_at FROM urls
 WHERE url = $1 LIMIT 1
 `
 
 func (q *Queries) GetUrl(ctx context.Context, url string) (Url, error) {
 	row := q.db.QueryRow(ctx, getUrl, url)
 	var i Url
-	err := row.Scan(&i.Url, &i.CrawlStatus, &i.FetchedAt)
+	err := row.Scan(&i.Url, &i.FetchedAt)
 	return i, err
 }
 
-const listUrls = `-- name: ListUrls :many
-SELECT url, crawl_status, fetched_at FROM urls
-ORDER BY fetched_at DESC
+const updateRobotRules = `-- name: UpdateRobotRules :exec
+UPDATE robot_rules
+  SET rules = $2, fetched_at = $3
+WHERE domain = $1
 `
 
-func (q *Queries) ListUrls(ctx context.Context) ([]Url, error) {
-	rows, err := q.db.Query(ctx, listUrls)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Url
-	for rows.Next() {
-		var i Url
-		if err := rows.Scan(&i.Url, &i.CrawlStatus, &i.FetchedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type UpdateRobotRulesParams struct {
+	Domain    string
+	Rules     []byte
+	FetchedAt pgtype.Timestamp
+}
+
+func (q *Queries) UpdateRobotRules(ctx context.Context, arg UpdateRobotRulesParams) error {
+	_, err := q.db.Exec(ctx, updateRobotRules, arg.Domain, arg.Rules, arg.FetchedAt)
+	return err
 }
 
 const updateUrlStatus = `-- name: UpdateUrlStatus :exec
 UPDATE urls
-  SET crawl_status = $2
+  SET fetched_at = $2
 WHERE url = $1
 `
 
 type UpdateUrlStatusParams struct {
-	Url         string
-	CrawlStatus CrawlStatus
+	Url       string
+	FetchedAt pgtype.Timestamp
 }
 
 func (q *Queries) UpdateUrlStatus(ctx context.Context, arg UpdateUrlStatusParams) error {
-	_, err := q.db.Exec(ctx, updateUrlStatus, arg.Url, arg.CrawlStatus)
+	_, err := q.db.Exec(ctx, updateUrlStatus, arg.Url, arg.FetchedAt)
 	return err
 }

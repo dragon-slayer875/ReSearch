@@ -30,7 +30,6 @@ func (r *iteratorForCreateUrls) Next() bool {
 func (r iteratorForCreateUrls) Values() ([]interface{}, error) {
 	return []interface{}{
 		r.rows[0].Url,
-		r.rows[0].CrawlStatus,
 		r.rows[0].FetchedAt,
 	}, nil
 }
@@ -40,5 +39,5 @@ func (r iteratorForCreateUrls) Err() error {
 }
 
 func (q *Queries) CreateUrls(ctx context.Context, arg []CreateUrlsParams) (int64, error) {
-	return q.db.CopyFrom(ctx, []string{"urls"}, []string{"url", "crawl_status", "fetched_at"}, &iteratorForCreateUrls{rows: arg})
+	return q.db.CopyFrom(ctx, []string{"urls"}, []string{"url", "fetched_at"}, &iteratorForCreateUrls{rows: arg})
 }

@@ -5,6 +5,11 @@ CREATE TYPE crawl_status AS ENUM (
 
 CREATE TABLE urls (
     url TEXT PRIMARY KEY,
-    crawl_status crawl_status NOT NULL DEFAULT 'pending',
     fetched_at TIMESTAMP
+);
+
+CREATE TABLE robot_rules (
+    domain TEXT PRIMARY KEY,
+    rules JSONB NOT NULL,
+    fetched_at TIMESTAMP NOT NULL
 );

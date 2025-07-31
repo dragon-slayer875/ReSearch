@@ -53,8 +53,13 @@ func (ns NullCrawlStatus) Value() (driver.Value, error) {
 	return string(ns.CrawlStatus), nil
 }
 
+type RobotRule struct {
+	Domain    string
+	Rules     []byte
+	FetchedAt pgtype.Timestamp
+}
+
 type Url struct {
-	Url         string
-	CrawlStatus CrawlStatus
-	FetchedAt   pgtype.Timestamp
+	Url       string
+	FetchedAt pgtype.Timestamp
 }
