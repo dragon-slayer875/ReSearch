@@ -1,2 +1,2 @@
-DROP TABLE IF EXISTS robots_txt;
+DROP TABLE IF EXISTS robot_rules;
 DROP TABLE IF EXISTS urls;
