@@ -13,7 +13,7 @@ import (
 
 const createRobotRules = `-- name: CreateRobotRules :exec
 INSERT INTO robot_rules (
-  domain, rules, fetched_at
+  domain, rules_json, fetched_at
 ) VALUES (
   $1, $2, $3
 )
@@ -21,12 +21,12 @@ INSERT INTO robot_rules (
 
 type CreateRobotRulesParams struct {
 	Domain    string
-	Rules     []byte
+	RulesJson []byte
 	FetchedAt pgtype.Timestamp
 }
 
 func (q *Queries) CreateRobotRules(ctx context.Context, arg CreateRobotRulesParams) error {
-	_, err := q.db.Exec(ctx, createRobotRules, arg.Domain, arg.Rules, arg.FetchedAt)
+	_, err := q.db.Exec(ctx, createRobotRules, arg.Domain, arg.RulesJson, arg.FetchedAt)
 	return err
 }
 
@@ -46,14 +46,14 @@ func (q *Queries) DeleteUrl(ctx context.Context, url string) error {
 }
 
 const getRobotRules = `-- name: GetRobotRules :one
-SELECT domain, rules, fetched_at FROM robot_rules
+SELECT domain, rules_json, fetched_at FROM robot_rules
 WHERE domain = $1
 `
 
 func (q *Queries) GetRobotRules(ctx context.Context, domain string) (RobotRule, error) {
 	row := q.db.QueryRow(ctx, getRobotRules, domain)
 	var i RobotRule
-	err := row.Scan(&i.Domain, &i.Rules, &i.FetchedAt)
+	err := row.Scan(&i.Domain, &i.RulesJson, &i.FetchedAt)
 	return i, err
 }
 
@@ -71,18 +71,18 @@ func (q *Queries) GetUrl(ctx context.Context, url string) (Url, error) {
 
 const updateRobotRules = `-- name: UpdateRobotRules :exec
 UPDATE robot_rules
-  SET rules = $2, fetched_at = $3
+  SET rules_json = $2, fetched_at = $3
 WHERE domain = $1
 `
 
 type UpdateRobotRulesParams struct {
 	Domain    string
-	Rules     []byte
+	RulesJson []byte
 	FetchedAt pgtype.Timestamp
 }
 
 func (q *Queries) UpdateRobotRules(ctx context.Context, arg UpdateRobotRulesParams) error {
-	_, err := q.db.Exec(ctx, updateRobotRules, arg.Domain, arg.Rules, arg.FetchedAt)
+	_, err := q.db.Exec(ctx, updateRobotRules, arg.Domain, arg.RulesJson, arg.FetchedAt)
 	return err
 }
 

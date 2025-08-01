@@ -308,7 +308,7 @@ func (crawler *Crawler) GetRobotRules(domainString string) (*RobotRules, error) 
 		}
 	} else {
 		robotRules := &RobotRules{}
-		if err := json.Unmarshal(robotRulesQuery.Rules, robotRules); err != nil {
+		if err := json.Unmarshal(robotRulesQuery.RulesJson, robotRules); err != nil {
 			if lastErr != nil {
 				lastErr = fmt.Errorf("database unmarshal error: %w (previous: %v)", err, lastErr)
 			} else {

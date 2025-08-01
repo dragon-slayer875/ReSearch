@@ -20,7 +20,7 @@ WHERE url = $1;
 
 -- name: CreateRobotRules :exec
 INSERT INTO robot_rules (
-  domain, rules, fetched_at
+  domain, rules_json, fetched_at
 ) VALUES (
   $1, $2, $3
 );
@@ -31,5 +31,5 @@ WHERE domain = $1;
 
 -- name: UpdateRobotRules :exec
 UPDATE robot_rules
-  SET rules = $2, fetched_at = $3
+  SET rules_json = $2, fetched_at = $3
 WHERE domain = $1;

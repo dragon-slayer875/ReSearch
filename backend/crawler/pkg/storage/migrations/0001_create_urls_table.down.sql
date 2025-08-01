@@ -1,3 +1,2 @@
 DROP TABLE IF EXISTS robots_txt;
 DROP TABLE IF EXISTS urls;
-DROP TYPE IF EXISTS crawl_status;
