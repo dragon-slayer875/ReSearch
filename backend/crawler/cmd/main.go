@@ -7,9 +7,11 @@ import (
 	"crawler/pkg/queue"
 	"flag"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -43,6 +45,15 @@ func main() {
 		logger.Fatalf("Failed to connect to PostgreSQL: %v", err)
 	}
 
+	httpClient := &http.Client{
+		Timeout: time.Duration(cfg.Crawler.HTTPTimeout) * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        cfg.Crawler.MaxIdleConns,
+			MaxIdleConnsPerHost: cfg.Crawler.MaxIdleConnsPerHost,
+			IdleConnTimeout:     time.Duration(cfg.Crawler.IdleConnTimeout) * time.Second,
+		},
+	}
+
 	defer dbPool.Close()
 
 	sigChan := make(chan os.Signal, 1)
@@ -54,7 +65,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient, dbPool)
+	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient, dbPool, httpClient)
 
 	if cfg.Crawler.SeedPath != "" {
 		Crawler.PublishSeedUrls(cfg.Crawler.SeedPath)

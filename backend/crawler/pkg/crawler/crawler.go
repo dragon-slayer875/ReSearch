@@ -24,19 +24,21 @@ type Crawler struct {
 	workerCount int
 	redisClient *redis.Client
 	dbPool      *pgxpool.Pool
+	httpClient  *http.Client
 }
 
-func NewCrawler(logger *log.Logger, workerCount int, redisClient *redis.Client, dbPool *pgxpool.Pool) *Crawler {
+func NewCrawler(logger *log.Logger, workerCount int, redisClient *redis.Client, dbPool *pgxpool.Pool, httpClient *http.Client) *Crawler {
 	return &Crawler{
 		logger,
 		workerCount,
 		redisClient,
 		dbPool,
+		httpClient,
 	}
 }
 
 func (crawler *Crawler) ProcessURL(urlString string) ([]string, error) {
-	resp, err := http.Get(urlString)
+	resp, err := crawler.httpClient.Get(urlString)
 	if err != nil {
 		return nil, err
 	}
@@ -333,7 +335,7 @@ func (crawler *Crawler) GetRobotRules(domainString string) (*RobotRules, error) 
 		}
 	}
 
-	robotRules, err := fetchRobotRulesFromWeb(domainString)
+	robotRules, err := fetchRobotRulesFromWeb(domainString, crawler.httpClient)
 	if err != nil {
 		if lastErr != nil {
 			lastErr = fmt.Errorf("web fetch error: %w (previous: %v)", err, lastErr)

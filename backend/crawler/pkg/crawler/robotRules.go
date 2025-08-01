@@ -28,8 +28,8 @@ func defaultRobotRules() *RobotRules {
 	}
 }
 
-func fetchRobotRulesFromWeb(domainString string) (*RobotRules, error) {
-	resp, err := http.Get(fmt.Sprintf("http://%s/robots.txt", domainString))
+func fetchRobotRulesFromWeb(domainString string, httpClient *http.Client) (*RobotRules, error) {
+	resp, err := httpClient.Get(fmt.Sprintf("http://%s/robots.txt", domainString))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch robots.txt for %s: %w", domainString, err)
 	}

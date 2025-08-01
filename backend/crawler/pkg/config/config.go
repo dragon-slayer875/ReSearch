@@ -11,8 +11,12 @@ type Config struct {
 }
 
 type CrawlerConfig struct {
-	SeedPath    string `mapstructure:"seed_path"`
-	WorkerCount int    `mapstructure:"worker_count"`
+	SeedPath            string `mapstructure:"seed_path"`
+	WorkerCount         int    `mapstructure:"worker_count"`
+	HTTPTimeout         int    `mapstructure:"http_timeout"` // in seconds
+	MaxIdleConns        int    `mapstructure:"max_idle_conns"`
+	MaxIdleConnsPerHost int    `mapstructure:"max_idle_conns_per_host"`
+	IdleConnTimeout     int    `mapstructure:"idle_conn_timeout"` // in seconds
 }
 
 type LoggingConfig struct {
