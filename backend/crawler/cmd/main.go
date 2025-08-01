@@ -64,7 +64,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient, dbPool, httpClient)
+	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient, dbPool, httpClient, context.Background())
 
 	if cfg.Crawler.SeedPath != "" {
 		Crawler.PublishSeedUrls(cfg.Crawler.SeedPath)
