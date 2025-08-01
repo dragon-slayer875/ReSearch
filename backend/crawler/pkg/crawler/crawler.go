@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/html"
@@ -143,7 +144,6 @@ func (crawler *Crawler) worker() {
 		robotRules, err := crawler.GetRobotRules(domain)
 		if err != nil {
 			crawler.logger.Println("Error getting robot rules for", url, ". Error:", err)
-			robotRules = defaultRobotRules()
 		}
 
 		if !robotRules.isPolite(domain, crawler.redisClient) {
@@ -235,8 +235,11 @@ func (crawler *Crawler) updateStorage(urlString string, discoveredUrls []string)
 	queriesWithTx := queries.WithTx(tx)
 
 	if err = queriesWithTx.UpdateUrlStatus(ctx, database.UpdateUrlStatusParams{
-		Url:         urlString,
-		CrawlStatus: database.CrawlStatusCompleted,
+		Url: urlString,
+		FetchedAt: pgtype.Timestamp{
+			Time:  time.Now(),
+			Valid: true,
+		},
 	}); err != nil {
 		return fmt.Errorf("failed to update URL status: %w", err)
 	}
@@ -245,8 +248,7 @@ func (crawler *Crawler) updateStorage(urlString string, discoveredUrls []string)
 
 	for _, discoveredUrl := range discoveredUrls {
 		discoveredUrlsParams = append(discoveredUrlsParams, database.CreateUrlsParams{
-			Url:         discoveredUrl,
-			CrawlStatus: database.CrawlStatusPending,
+			Url: discoveredUrl,
 		})
 	}
 
@@ -282,23 +284,53 @@ func (crawler *Crawler) updateDomainDelay(domainString string) error {
 }
 
 func (crawler *Crawler) GetRobotRules(domainString string) (*RobotRules, error) {
-	robotRules := &RobotRules{}
+	var lastErr error
 
 	robotRulesJson, err := crawler.redisClient.Get(context.Background(), "robots:"+domainString).Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("failed to get robots.txt from Redis for %s: %w", domainString, err)
+		lastErr = fmt.Errorf("redis error: %w", err)
+	} else if robotRulesJson != "" {
+		robotRules := &RobotRules{}
+		if err := json.Unmarshal([]byte(robotRulesJson), robotRules); err != nil {
+			lastErr = fmt.Errorf("redis unmarshal error: %w", err)
+		} else {
+			return robotRules, nil
+		}
 	}
 
-	if err = json.Unmarshal([]byte(robotRulesJson), robotRules); err == nil {
-		return robotRules, nil
-	} else if !errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("failed to unmarshal robots.txt for %s: %w, %s", domainString, err, robotRulesJson)
-	}
-
-	robotRules, err = fetchRobotRulesFromWeb(domainString)
+	queries := database.New(crawler.dbPool)
+	robotRulesQuery, err := queries.GetRobotRules(context.Background(), domainString)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get robots.txt for %s: %w", domainString, err)
+		if lastErr != nil {
+			lastErr = fmt.Errorf("database error: %w (previous: %v)", err, lastErr)
+		} else {
+			lastErr = fmt.Errorf("database error: %w", err)
+		}
+	} else {
+		robotRules := &RobotRules{}
+		if err := json.Unmarshal(robotRulesQuery.Rules, robotRules); err != nil {
+			if lastErr != nil {
+				lastErr = fmt.Errorf("database unmarshal error: %w (previous: %v)", err, lastErr)
+			} else {
+				lastErr = fmt.Errorf("database unmarshal error: %w", err)
+			}
+		} else {
+			return robotRules, nil
+		}
 	}
 
+	robotRules, err := fetchRobotRulesFromWeb(domainString)
+	if err != nil {
+		if lastErr != nil {
+			lastErr = fmt.Errorf("web fetch error: %w (previous: %v)", err, lastErr)
+		} else {
+			lastErr = fmt.Errorf("web fetch error: %w", err)
+		}
+
+		defaultRules := defaultRobotRules()
+		return defaultRules, fmt.Errorf("all methods failed for domain %s: %v", domainString, lastErr)
+	}
+
+	// Successfully fetched from web
 	return robotRules, nil
 }
