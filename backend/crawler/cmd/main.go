@@ -46,11 +46,10 @@ func main() {
 	}
 
 	httpClient := &http.Client{
-		Timeout: time.Duration(cfg.Crawler.HTTPTimeout) * time.Second,
 		Transport: &http.Transport{
-			MaxIdleConns:        cfg.Crawler.MaxIdleConns,
-			MaxIdleConnsPerHost: cfg.Crawler.MaxIdleConnsPerHost,
-			IdleConnTimeout:     time.Duration(cfg.Crawler.IdleConnTimeout) * time.Second,
+			MaxIdleConns:    cfg.Crawler.MaxIdleConns,
+			MaxConnsPerHost: cfg.Crawler.MaxConnsPerHost,
+			IdleConnTimeout: time.Duration(cfg.Crawler.IdleConnTimeout) * time.Second,
 		},
 	}
 

@@ -11,12 +11,12 @@ type Config struct {
 }
 
 type CrawlerConfig struct {
-	SeedPath            string `mapstructure:"seed_path"`
-	WorkerCount         int    `mapstructure:"worker_count"`
-	HTTPTimeout         int    `mapstructure:"http_timeout"` // in seconds
-	MaxIdleConns        int    `mapstructure:"max_idle_conns"`
-	MaxIdleConnsPerHost int    `mapstructure:"max_idle_conns_per_host"`
-	IdleConnTimeout     int    `mapstructure:"idle_conn_timeout"` // in seconds
+	SeedPath        string `mapstructure:"seed_path"`
+	WorkerCount     int    `mapstructure:"worker_count"`
+	HTTPTimeout     int    `mapstructure:"http_timeout"` // in seconds
+	MaxIdleConns    int    `mapstructure:"max_idle_conns"`
+	MaxConnsPerHost int    `mapstructure:"max_conns_per_host"`
+	IdleConnTimeout int    `mapstructure:"idle_conn_timeout"` // in seconds
 }
 
 type LoggingConfig struct {
@@ -30,6 +30,10 @@ func Load(configPath string) (*Config, error) {
 
 	viper.SetDefault("crawler.seed_path", "")
 	viper.SetDefault("crawler.worker_count", 200)
+	viper.SetDefault("crawler.http_timeout", 0) // in seconds
+	viper.SetDefault("crawler.max_idle_conns", 100)
+	viper.SetDefault("crawler.max_conns_per_host", 1)
+	viper.SetDefault("crawler.idle_conn_timeout", 0) // in seconds
 	viper.SetDefault("logging.level", "info")
 	viper.SetDefault("logging.format", "json")
 
