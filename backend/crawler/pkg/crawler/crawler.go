@@ -176,8 +176,8 @@ func (crawler *Crawler) worker() {
 		robotRulesJson, _ := json.Marshal(robotRules)
 
 		crawler.updateDomainDelay(domain)
-		crawler.queueDiscoveredUrls(&discoveredUrls)
 		crawler.redisClient.Set(context.Background(), "robots:"+domain, string(robotRulesJson), time.Hour*4)
+		crawler.queueDiscoveredUrls(&discoveredUrls)
 		if err = crawler.updateStorage(url, domain, discoveredUrls, robotRulesJson); err != nil {
 			crawler.logger.Println("Error updating storage for URL:", url, "Error:", err)
 			if err = crawler.requeueUrl(url); err != nil {
