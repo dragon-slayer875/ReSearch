@@ -164,12 +164,15 @@ func (crawler *Crawler) worker() {
 			continue
 		}
 
-		if err = crawler.updateStorage(url, discoveredUrls); err != nil {
+		robotRulesJson, _ := json.Marshal(robotRules)
+
+		if err = crawler.updateStorage(url, domain, discoveredUrls, robotRulesJson); err != nil {
 			crawler.logger.Println("Error updating storage for URL:", url, "Error:", err)
+			if err = crawler.requeueUrl(url); err != nil {
+				crawler.logger.Println("Error requeuing URL after storage update failure:", url, "Error:", err)
+			}
 			continue
 		}
-
-		robotRulesJson, _ := json.Marshal(robotRules)
 
 		crawler.redisClient.ZRem(context.Background(), "crawl:processing", url)
 		crawler.redisClient.Set(context.Background(), "robots:"+domain, string(robotRulesJson), time.Hour*4)
@@ -221,7 +224,7 @@ func (crawler *Crawler) queueDiscoveredUrls(urls []string) {
 
 }
 
-func (crawler *Crawler) updateStorage(urlString string, discoveredUrls []string) error {
+func (crawler *Crawler) updateStorage(urlString, domainString string, discoveredUrls []string, rulesJson []byte) error {
 	ctx := context.Background()
 
 	tx, err := crawler.dbPool.Begin(ctx)
@@ -242,6 +245,17 @@ func (crawler *Crawler) updateStorage(urlString string, discoveredUrls []string)
 		},
 	}); err != nil {
 		return fmt.Errorf("failed to update URL status: %w", err)
+	}
+
+	if err = queriesWithTx.CreateRobotRules(ctx, database.CreateRobotRulesParams{
+		Domain:    domainString,
+		RulesJson: rulesJson,
+		FetchedAt: pgtype.Timestamp{
+			Time:  time.Now(),
+			Valid: true,
+		},
+	}); err != nil {
+		return fmt.Errorf("failed to create robot rules: %w", err)
 	}
 
 	var discoveredUrlsParams []database.CreateUrlsParams
