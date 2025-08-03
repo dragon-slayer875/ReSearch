@@ -159,12 +159,12 @@ func (crawler *Crawler) worker() {
 			continue
 		}
 
-		crawler.logger.Println("Processing URL:", url, "with domain:", domain)
-
 		if !robotRules.isAllowed(url) {
 			crawler.logger.Println("URL not allowed by robots.txt:", url)
 			continue
 		}
+
+		crawler.logger.Println("Processing URL:", url, "with domain:", domain)
 
 		discoveredUrls, err := crawler.ProcessURL(url)
 		if err != nil {
@@ -174,20 +174,37 @@ func (crawler *Crawler) worker() {
 
 		robotRulesJson, _ := json.Marshal(robotRules)
 
-		crawler.updateDomainDelay(domain)
-		crawler.redisClient.Set(context.Background(), "robots:"+domain, string(robotRulesJson), time.Hour*4)
-		crawler.queueDiscoveredUrls(&discoveredUrls)
-		if err = crawler.updateStorage(url, domain, discoveredUrls, robotRulesJson); err != nil {
-			crawler.logger.Println("Error updating storage for URL:", url, "Error:", err)
-			if err = crawler.requeueUrl(url); err != nil {
-				crawler.logger.Println("Error requeuing URL after storage update failure:", url, "Error:", err)
-			}
+		if err := crawler.updateQueuesAndStorage(url, domain, &discoveredUrls, robotRulesJson); err != nil {
+			crawler.logger.Println("Error updating queues and storage for URL:", url, "Error:", err)
 			continue
 		}
-		crawler.redisClient.ZRem(context.Background(), "crawl:processing", url)
 
 		crawler.logger.Println("Processed URL:", url)
 	}
+}
+
+func (crawler *Crawler) updateQueuesAndStorage(url, domain string, discoveredUrls *map[string]struct{}, rulesJson []byte) error {
+	if err := crawler.redisClient.HSet(crawler.ctx, "crawl:domain_delays", domain, time.Now().Unix()).Err(); err != nil {
+		return fmt.Errorf("failed to update domain delay for %s: %w", domain, err)
+	}
+
+	if err := crawler.redisClient.Set(context.Background(), "robots:"+domain, string(rulesJson), time.Hour*4).Err(); err != nil {
+		return fmt.Errorf("failed to cache robot rules for domain %s: %w", domain, err)
+	}
+
+	if err := crawler.queueDiscoveredUrls(discoveredUrls); err != nil {
+		return fmt.Errorf("failed to queue discovered URLs: %w", err)
+	}
+
+	if err := crawler.updateStorage(url, domain, discoveredUrls, rulesJson); err != nil {
+		return fmt.Errorf("failed to update storage for URL %s: %w", url, err)
+	}
+
+	if err := crawler.redisClient.ZRem(context.Background(), "crawl:processing", url).Err(); err != nil {
+		return fmt.Errorf("failed to remove URL %s from processing queue: %w", url, err)
+	}
+
+	return nil
 }
 
 func (crawler *Crawler) getNextUrl() (string, error) {
@@ -208,9 +225,9 @@ func (crawler *Crawler) getNextUrl() (string, error) {
 	return result[1], nil
 }
 
-func (crawler *Crawler) queueDiscoveredUrls(urls *map[string]struct{}) {
+func (crawler *Crawler) queueDiscoveredUrls(urls *map[string]struct{}) error {
 	if len(*urls) == 0 {
-		return
+		return nil
 	}
 	pipe := crawler.redisClient.Pipeline()
 
@@ -226,12 +243,13 @@ func (crawler *Crawler) queueDiscoveredUrls(urls *map[string]struct{}) {
 	}
 
 	if _, err := pipe.Exec(crawler.ctx); err != nil {
-		crawler.logger.Println("Failed to handle discovered URLs:", err)
+		return err
 	}
 
+	return nil
 }
 
-func (crawler *Crawler) updateStorage(urlString, domainString string, discoveredUrls map[string]struct{}, rulesJson []byte) error {
+func (crawler *Crawler) updateStorage(urlString, domainString string, discoveredUrls *map[string]struct{}, rulesJson []byte) error {
 	tx, err := crawler.dbPool.Begin(crawler.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -265,7 +283,7 @@ func (crawler *Crawler) updateStorage(urlString, domainString string, discovered
 
 	var discoveredUrlsParams []database.CreateUrlsParams
 
-	for discoveredUrl := range discoveredUrls {
+	for discoveredUrl := range *discoveredUrls {
 		discoveredUrlsParams = append(discoveredUrlsParams, database.CreateUrlsParams{
 			Url: discoveredUrl,
 		})
@@ -285,14 +303,6 @@ func (crawler *Crawler) requeueUrl(urlString string) error {
 
 	if err := crawler.redisClient.ZRem(crawler.ctx, "crawl:processing", urlString).Err(); err != nil {
 		return fmt.Errorf("failed to remove URL from processing queue %s: %w", urlString, err)
-	}
-
-	return nil
-}
-
-func (crawler *Crawler) updateDomainDelay(domainString string) error {
-	if err := crawler.redisClient.HSet(crawler.ctx, "crawl:domain_delays", domainString, time.Now().Unix()).Err(); err != nil {
-		return fmt.Errorf("failed to update domain delay for %s: %w", domainString, err)
 	}
 
 	return nil
