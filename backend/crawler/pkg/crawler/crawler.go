@@ -2,11 +2,13 @@ package crawler
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crawler/pkg/storage/database"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -50,15 +52,25 @@ func (crawler *Crawler) ProcessURL(urlString string) (map[string]struct{}, error
 		return nil, fmt.Errorf("failed to fetch URL %s: %s", urlString, resp.Status)
 	}
 
+	var indexingBuffer bytes.Buffer
+
+	teeReader := io.TeeReader(resp.Body, &indexingBuffer)
+
 	discoveredUrls := make(map[string]struct{})
 
-	tokenizer := html.NewTokenizer(resp.Body)
+	tokenizer := html.NewTokenizer(teeReader)
 
 	for {
 		tokenType := tokenizer.Next()
 
 		switch tokenType {
 		case html.ErrorToken:
+			go func() {
+				if err := crawler.queueForIndexing(indexingBuffer.Bytes(), urlString); err != nil {
+					crawler.logger.Printf("Failed to queue URL for indexing: %s, Error: %v", urlString, err)
+				}
+			}()
+
 			return discoveredUrls, nil // EOF
 		case html.StartTagToken, html.SelfClosingTagToken:
 			token := tokenizer.Token()
@@ -120,7 +132,7 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 	for scanner.Scan() {
 		url := scanner.Text()
 
-		pipe.LPush(crawler.ctx, "crawl:queue", url)
+		pipe.LPush(crawler.ctx, "crawl:pending", url)
 		pipe.SAdd(crawler.ctx, "crawl:seen", url)
 	}
 
@@ -208,7 +220,7 @@ func (crawler *Crawler) updateQueuesAndStorage(url, domain string, discoveredUrl
 }
 
 func (crawler *Crawler) getNextUrl() (string, error) {
-	result, err := crawler.redisClient.BRPop(crawler.ctx, time.Second*10, "crawl:queue").Result()
+	result, err := crawler.redisClient.BRPop(crawler.ctx, time.Second*10, "crawl:pending").Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return "", fmt.Errorf("no URLs in queue")
@@ -238,7 +250,7 @@ func (crawler *Crawler) queueDiscoveredUrls(urls *map[string]struct{}) error {
 			continue
 		}
 
-		pipe.LPush(crawler.ctx, "crawl:queue", url)
+		pipe.LPush(crawler.ctx, "crawl:pending", url)
 		pipe.SAdd(crawler.ctx, "crawl:seen", url)
 	}
 
@@ -247,6 +259,21 @@ func (crawler *Crawler) queueDiscoveredUrls(urls *map[string]struct{}) error {
 	}
 
 	return nil
+}
+
+func (crawler *Crawler) queueForIndexing(body []byte, url string) error {
+	payload := map[string]any{
+		"url":       url,
+		"body":      string(body),
+		"timestamp": time.Now().Unix(),
+	}
+
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal indexing payload: %w", err)
+	}
+
+	return crawler.redisClient.LPush(crawler.ctx, "index:pending", payloadJSON).Err()
 }
 
 func (crawler *Crawler) updateStorage(urlString, domainString string, discoveredUrls *map[string]struct{}, rulesJson []byte) error {
@@ -297,7 +324,7 @@ func (crawler *Crawler) updateStorage(urlString, domainString string, discovered
 }
 
 func (crawler *Crawler) requeueUrl(urlString string) error {
-	if err := crawler.redisClient.LPush(crawler.ctx, "crawl:queue", urlString).Err(); err != nil {
+	if err := crawler.redisClient.LPush(crawler.ctx, "crawl:pending", urlString).Err(); err != nil {
 		return fmt.Errorf("failed to requeue URL %s: %w", urlString, err)
 	}
 
