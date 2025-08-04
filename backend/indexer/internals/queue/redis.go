@@ -6,6 +6,18 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const (
+	PendingQueue    = "index:pending"
+	ProcessingQueue = "index:processing"
+	SeenSet         = "index:seen"
+)
+
+type IndexJob struct {
+	Url         string
+	HtmlContent string
+	Timestamp   int64
+}
+
 func NewRedisClient(redisUrl string) (*redis.Client, error) {
 	redisOpts, err := redis.ParseURL(redisUrl)
 	if err != nil {
