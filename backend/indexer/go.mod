@@ -6,6 +6,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.11.0
+	github.com/snowballstem/snowball v3.0.1+incompatible
 	github.com/spf13/viper v1.20.1
 	golang.org/x/net v0.33.0
 )
