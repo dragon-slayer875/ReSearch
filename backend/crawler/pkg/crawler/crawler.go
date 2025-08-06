@@ -262,12 +262,13 @@ func (crawler *Crawler) queueDiscoveredUrls(urls *map[string]struct{}) error {
 }
 
 func (crawler *Crawler) queueForIndexing(body []byte, url string) error {
-	payload := map[string]any{
-		"url":       url,
-		"body":      string(body),
-		"timestamp": time.Now().Unix(),
+	payload := struct {
+		url         string
+		htmlContent string
+		timestamp   int64
+	}{
+		url, string(body), time.Now().Unix(),
 	}
-
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal indexing payload: %w", err)
