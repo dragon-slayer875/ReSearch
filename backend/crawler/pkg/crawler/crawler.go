@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crawler/pkg/queue"
 	"crawler/pkg/storage/database"
 	"encoding/json"
 	"errors"
@@ -77,7 +78,7 @@ func (crawler *Crawler) ProcessURL(urlString string) (map[string]struct{}, error
 			if token.Data == "a" {
 				for _, attr := range token.Attr {
 					if attr.Key == "href" {
-						isSeen, err := crawler.redisClient.SIsMember(crawler.ctx, "crawl:seen", attr.Val).Result()
+						isSeen, err := crawler.redisClient.SIsMember(crawler.ctx, queue.SeenSet, attr.Val).Result()
 						if err != nil {
 							crawler.logger.Fatalln(fmt.Errorf("failed to check if URL is seen: %w", err))
 						}
@@ -132,8 +133,8 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 	for scanner.Scan() {
 		url := scanner.Text()
 
-		pipe.LPush(crawler.ctx, "crawl:pending", url)
-		pipe.SAdd(crawler.ctx, "crawl:seen", url)
+		pipe.LPush(crawler.ctx, queue.PendingQueue, url)
+		pipe.SAdd(crawler.ctx, queue.SeenSet, url)
 	}
 
 	_, err = pipe.Exec(crawler.ctx)
@@ -212,7 +213,7 @@ func (crawler *Crawler) updateQueuesAndStorage(url, domain string, discoveredUrl
 		return fmt.Errorf("failed to update storage for URL %s: %w", url, err)
 	}
 
-	if err := crawler.redisClient.ZRem(context.Background(), "crawl:processing", url).Err(); err != nil {
+	if err := crawler.redisClient.ZRem(context.Background(), queue.ProcessingQueue, url).Err(); err != nil {
 		return fmt.Errorf("failed to remove URL %s from processing queue: %w", url, err)
 	}
 
@@ -220,7 +221,7 @@ func (crawler *Crawler) updateQueuesAndStorage(url, domain string, discoveredUrl
 }
 
 func (crawler *Crawler) getNextUrl() (string, error) {
-	result, err := crawler.redisClient.BRPop(crawler.ctx, time.Second*10, "crawl:pending").Result()
+	result, err := crawler.redisClient.BRPop(crawler.ctx, time.Second*10, queue.PendingQueue).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return "", fmt.Errorf("no URLs in queue")
@@ -228,7 +229,7 @@ func (crawler *Crawler) getNextUrl() (string, error) {
 		return "", fmt.Errorf("error fetching URL from queue: %v", err)
 	}
 
-	crawler.redisClient.ZAdd(crawler.ctx, "crawl:processing", redis.Z{
+	crawler.redisClient.ZAdd(crawler.ctx, queue.ProcessingQueue, redis.Z{
 		Score:  float64(time.Now().Unix()),
 		Member: result[1],
 	})
@@ -244,14 +245,14 @@ func (crawler *Crawler) queueDiscoveredUrls(urls *map[string]struct{}) error {
 	pipe := crawler.redisClient.Pipeline()
 
 	for url := range *urls {
-		exists := pipe.SIsMember(crawler.ctx, "crawl:seen", url)
+		exists := pipe.SIsMember(crawler.ctx, queue.SeenSet, url)
 		if exists.Val() {
 			delete(*urls, url)
 			continue
 		}
 
-		pipe.LPush(crawler.ctx, "crawl:pending", url)
-		pipe.SAdd(crawler.ctx, "crawl:seen", url)
+		pipe.LPush(crawler.ctx, queue.PendingQueue, url)
+		pipe.SAdd(crawler.ctx, queue.SeenSet, url)
 	}
 
 	if _, err := pipe.Exec(crawler.ctx); err != nil {
@@ -274,7 +275,7 @@ func (crawler *Crawler) queueForIndexing(body []byte, url string) error {
 		return fmt.Errorf("failed to marshal indexing payload: %w", err)
 	}
 
-	return crawler.redisClient.LPush(crawler.ctx, "index:pending", payloadJSON).Err()
+	return crawler.redisClient.LPush(crawler.ctx, queue.IndexPendingQueue, payloadJSON).Err()
 }
 
 func (crawler *Crawler) updateStorage(urlString, domainString string, discoveredUrls *map[string]struct{}, rulesJson []byte) error {
@@ -325,11 +326,11 @@ func (crawler *Crawler) updateStorage(urlString, domainString string, discovered
 }
 
 func (crawler *Crawler) requeueUrl(urlString string) error {
-	if err := crawler.redisClient.LPush(crawler.ctx, "crawl:pending", urlString).Err(); err != nil {
+	if err := crawler.redisClient.LPush(crawler.ctx, queue.PendingQueue, urlString).Err(); err != nil {
 		return fmt.Errorf("failed to requeue URL %s: %w", urlString, err)
 	}
 
-	if err := crawler.redisClient.ZRem(crawler.ctx, "crawl:processing", urlString).Err(); err != nil {
+	if err := crawler.redisClient.ZRem(crawler.ctx, queue.ProcessingQueue, urlString).Err(); err != nil {
 		return fmt.Errorf("failed to remove URL from processing queue %s: %w", urlString, err)
 	}
 
