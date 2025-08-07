@@ -58,14 +58,14 @@ func (q *Queries) GetRobotRules(ctx context.Context, domain string) (RobotRule, 
 }
 
 const getUrl = `-- name: GetUrl :one
-SELECT url, fetched_at FROM urls
+SELECT id, url, fetched_at FROM urls
 WHERE url = $1 LIMIT 1
 `
 
 func (q *Queries) GetUrl(ctx context.Context, url string) (Url, error) {
 	row := q.db.QueryRow(ctx, getUrl, url)
 	var i Url
-	err := row.Scan(&i.Url, &i.FetchedAt)
+	err := row.Scan(&i.ID, &i.Url, &i.FetchedAt)
 	return i, err
 }
 

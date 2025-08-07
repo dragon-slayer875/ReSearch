@@ -8,6 +8,19 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type InvertedIndex struct {
+	Word         string
+	DocumentBits []byte
+}
+
+type Metadata struct {
+	UrlID           pgtype.UUID
+	Title           pgtype.Text
+	MetaTitle       pgtype.Text
+	MetaDescription pgtype.Text
+	MetaRobots      pgtype.Text
+}
+
 type RobotRule struct {
 	Domain    string
 	RulesJson []byte
@@ -15,6 +28,14 @@ type RobotRule struct {
 }
 
 type Url struct {
+	ID        pgtype.UUID
 	Url       string
 	FetchedAt pgtype.Timestamp
+}
+
+type WordDatum struct {
+	Word          string
+	UrlID         pgtype.UUID
+	PositionBits  []byte
+	TermFrequency int32
 }
