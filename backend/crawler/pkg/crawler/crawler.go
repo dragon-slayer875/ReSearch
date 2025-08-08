@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -160,7 +161,7 @@ func (crawler *Crawler) worker() {
 			continue
 		}
 
-		robotRules, err := crawler.GetRobotRules(domain)
+		robotRules, rulesExistInDb, err := crawler.GetRobotRules(domain)
 		if err != nil {
 			crawler.logger.Println("Error getting robot rules for", url, ". Error:", err)
 		}
@@ -187,7 +188,7 @@ func (crawler *Crawler) worker() {
 
 		robotRulesJson, _ := json.Marshal(robotRules)
 
-		if err := crawler.updateQueuesAndStorage(url, domain, &discoveredUrls, robotRulesJson); err != nil {
+		if err := crawler.updateQueuesAndStorage(url, domain, &discoveredUrls, robotRulesJson, rulesExistInDb); err != nil {
 			crawler.logger.Println("Error updating queues and storage for URL:", url, "Error:", err)
 			continue
 		}
@@ -196,7 +197,7 @@ func (crawler *Crawler) worker() {
 	}
 }
 
-func (crawler *Crawler) updateQueuesAndStorage(url, domain string, discoveredUrls *map[string]struct{}, rulesJson []byte) error {
+func (crawler *Crawler) updateQueuesAndStorage(url, domain string, discoveredUrls *map[string]struct{}, rulesJson []byte, rulesExistInDb bool) error {
 	if err := crawler.redisClient.HSet(crawler.ctx, "crawl:domain_delays", domain, time.Now().Unix()).Err(); err != nil {
 		return fmt.Errorf("failed to update domain delay for %s: %w", domain, err)
 	}
@@ -209,7 +210,7 @@ func (crawler *Crawler) updateQueuesAndStorage(url, domain string, discoveredUrl
 		return fmt.Errorf("failed to queue discovered URLs: %w", err)
 	}
 
-	if err := crawler.updateStorage(url, domain, discoveredUrls, rulesJson); err != nil {
+	if err := crawler.updateStorage(url, domain, discoveredUrls, rulesJson, rulesExistInDb); err != nil {
 		return fmt.Errorf("failed to update storage for URL %s: %w", url, err)
 	}
 
@@ -278,7 +279,7 @@ func (crawler *Crawler) queueForIndexing(body []byte, url string) error {
 	return crawler.redisClient.LPush(crawler.ctx, queue.IndexPendingQueue, payloadJSON).Err()
 }
 
-func (crawler *Crawler) updateStorage(urlString, domainString string, discoveredUrls *map[string]struct{}, rulesJson []byte) error {
+func (crawler *Crawler) updateStorage(urlString, domainString string, discoveredUrls *map[string]struct{}, rulesJson []byte, rulesExistInDb bool) error {
 	tx, err := crawler.dbPool.Begin(crawler.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -299,15 +300,17 @@ func (crawler *Crawler) updateStorage(urlString, domainString string, discovered
 		return fmt.Errorf("failed to update URL status: %w", err)
 	}
 
-	if err = queriesWithTx.CreateRobotRules(crawler.ctx, database.CreateRobotRulesParams{
-		Domain:    domainString,
-		RulesJson: rulesJson,
-		FetchedAt: pgtype.Timestamp{
-			Time:  time.Now(),
-			Valid: true,
-		},
-	}); err != nil {
-		return fmt.Errorf("failed to create robot rules: %w", err)
+	if !rulesExistInDb {
+		if err = queriesWithTx.CreateRobotRules(crawler.ctx, database.CreateRobotRulesParams{
+			Domain:    domainString,
+			RulesJson: rulesJson,
+			FetchedAt: pgtype.Timestamp{
+				Time:  time.Now(),
+				Valid: true,
+			},
+		}); err != nil {
+			return fmt.Errorf("failed to create robot rules: %w", err)
+		}
 	}
 
 	var discoveredUrlsParams []database.CreateUrlsParams
@@ -337,7 +340,7 @@ func (crawler *Crawler) requeueUrl(urlString string) error {
 	return nil
 }
 
-func (crawler *Crawler) GetRobotRules(domainString string) (*RobotRules, error) {
+func (crawler *Crawler) GetRobotRules(domainString string) (*RobotRules, bool, error) {
 	var lastErr error
 
 	robotRulesJson, err := crawler.redisClient.Get(context.Background(), "robots:"+domainString).Result()
@@ -348,17 +351,21 @@ func (crawler *Crawler) GetRobotRules(domainString string) (*RobotRules, error) 
 		if err := json.Unmarshal([]byte(robotRulesJson), robotRules); err != nil {
 			lastErr = fmt.Errorf("redis unmarshal error: %w", err)
 		} else {
-			return robotRules, nil
+			return robotRules, true, nil
 		}
 	}
 
 	queries := database.New(crawler.dbPool)
 	robotRulesQuery, err := queries.GetRobotRules(context.Background(), domainString)
 	if err != nil {
-		if lastErr != nil {
-			lastErr = fmt.Errorf("database error: %w (previous: %v)", err, lastErr)
+		if err != pgx.ErrNoRows {
+			if lastErr != nil {
+				lastErr = fmt.Errorf("database error: %w (previous: %v)", err, lastErr)
+			} else {
+				lastErr = fmt.Errorf("database error: %w", err)
+			}
 		} else {
-			lastErr = fmt.Errorf("database error: %w", err)
+
 		}
 	} else {
 		robotRules := &RobotRules{}
@@ -369,7 +376,7 @@ func (crawler *Crawler) GetRobotRules(domainString string) (*RobotRules, error) 
 				lastErr = fmt.Errorf("database unmarshal error: %w", err)
 			}
 		} else {
-			return robotRules, nil
+			return robotRules, true, nil
 		}
 	}
 
@@ -382,9 +389,8 @@ func (crawler *Crawler) GetRobotRules(domainString string) (*RobotRules, error) 
 		}
 
 		defaultRules := defaultRobotRules()
-		return defaultRules, fmt.Errorf("all methods failed for domain %s: %v", domainString, lastErr)
+		return defaultRules, false, fmt.Errorf("all methods failed for domain %s: %v", domainString, lastErr)
 	}
 
-	// Successfully fetched from web
-	return robotRules, nil
+	return robotRules, false, nil
 }
