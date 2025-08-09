@@ -31,6 +31,7 @@ func (q *Queries) CreateRobotRules(ctx context.Context, arg CreateRobotRulesPara
 }
 
 type CreateUrlsParams struct {
+	ID        pgtype.UUID
 	Url       string
 	FetchedAt pgtype.Timestamp
 }

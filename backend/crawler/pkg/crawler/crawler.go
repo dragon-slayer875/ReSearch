@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -43,22 +44,22 @@ func NewCrawler(logger *log.Logger, workerCount int, redisClient *redis.Client, 
 	}
 }
 
-func (crawler *Crawler) ProcessURL(urlString string) (map[string]struct{}, error) {
+func (crawler *Crawler) ProcessURL(urlString, id string) (map[string]string, []byte, error) {
 	resp, err := crawler.httpClient.Get(urlString)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch URL %s: %s", urlString, resp.Status)
+		return nil, nil, fmt.Errorf("failed to fetch URL %s: %s", urlString, resp.Status)
 	}
 
 	var indexingBuffer bytes.Buffer
 
 	teeReader := io.TeeReader(resp.Body, &indexingBuffer)
 
-	discoveredUrls := make(map[string]struct{})
+	discoveredUrls := make(map[string]string)
 
 	tokenizer := html.NewTokenizer(teeReader)
 
@@ -67,35 +68,34 @@ func (crawler *Crawler) ProcessURL(urlString string) (map[string]struct{}, error
 
 		switch tokenType {
 		case html.ErrorToken:
-			go func() {
-				if err := crawler.queueForIndexing(indexingBuffer.Bytes(), urlString); err != nil {
-					crawler.logger.Printf("Failed to queue URL for indexing: %s, Error: %v", urlString, err)
-				}
-			}()
 
-			return discoveredUrls, nil // EOF
+			return discoveredUrls, indexingBuffer.Bytes(), nil // EOF
 		case html.StartTagToken, html.SelfClosingTagToken:
 			token := tokenizer.Token()
 			if token.Data == "a" {
 				for _, attr := range token.Attr {
 					if attr.Key == "href" {
-						isSeen, err := crawler.redisClient.SIsMember(crawler.ctx, queue.SeenSet, attr.Val).Result()
-						if err != nil {
-							crawler.logger.Fatalln(fmt.Errorf("failed to check if URL is seen: %w", err))
-						}
-						if isSeen {
-							continue
-						}
 						validatedUrl, err := validateUrl(urlString, attr.Val)
 						if err != nil {
 							crawler.logger.Println("Invalid URL found:", attr.Val, "Error:", err)
-						} else {
-							isAllowedResource, err := isUrlOfAllowedResourceType(validatedUrl)
+							continue
+						}
+						isAllowedResource, err := isUrlOfAllowedResourceType(validatedUrl)
+						if err != nil {
+							crawler.logger.Println("Error checking if URL should be crawled:", validatedUrl, "Error:", err)
+							continue
+						}
+						if isAllowedResource {
+							added, err := crawler.redisClient.SAdd(crawler.ctx, queue.SeenSet, validatedUrl).Result()
 							if err != nil {
-								crawler.logger.Println("Error checking if URL should be crawled:", validatedUrl, "Error:", err)
-							} else if isAllowedResource {
-								discoveredUrls[validatedUrl] = struct{}{}
+								crawler.logger.Println("Failed to check if URL is seen:", err)
 							}
+							if added == 0 {
+								crawler.logger.Println("URL already seen, skipping:", attr.Val)
+								continue
+							}
+							discoveredUrls[validatedUrl] = uuid.New().String()
+							crawler.logger.Println("Discovered URL:", validatedUrl)
 						}
 						break
 					}
@@ -129,13 +129,29 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 	}
 	defer file.Close()
 
+	var seedUrls []database.CreateUrlsParams
 	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
+		var id pgtype.UUID
 		url := scanner.Text()
+		idString := uuid.New().String()
+		id.Scan(idString)
 
-		pipe.LPush(crawler.ctx, queue.PendingQueue, url)
+		seedUrls = append(seedUrls, database.CreateUrlsParams{
+			ID:  id,
+			Url: url,
+		})
+
+		pipe.LPush(crawler.ctx, queue.PendingQueue, idString+url)
 		pipe.SAdd(crawler.ctx, queue.SeenSet, url)
+	}
+
+	queries := database.New(crawler.dbPool)
+	_, err = queries.CreateUrls(crawler.ctx, seedUrls)
+	if err != nil {
+		crawler.logger.Fatalln("Failed to seed urls:", err)
+		return
 	}
 
 	_, err = pipe.Exec(crawler.ctx)
@@ -148,12 +164,13 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 
 func (crawler *Crawler) worker() {
 	for {
-		url, err := crawler.getNextUrl()
+		job, err := crawler.getNextJob()
 		if err != nil {
 			crawler.logger.Println(err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
+		id, url := job[:36], job[36:]
 
 		domain, err := extractDomainFromUrl(url)
 		if err != nil {
@@ -167,7 +184,7 @@ func (crawler *Crawler) worker() {
 		}
 
 		if !robotRules.isPolite(domain, crawler.redisClient) {
-			if err = crawler.requeueUrl(url); err != nil {
+			if err = crawler.requeueJob(job); err != nil {
 				crawler.logger.Println("Error requeuing URL:", url, "Error:", err)
 			}
 			continue
@@ -178,9 +195,9 @@ func (crawler *Crawler) worker() {
 			continue
 		}
 
-		crawler.logger.Println("Processing URL:", url, "with domain:", domain)
+		crawler.logger.Println("Processing URL:", url)
 
-		discoveredUrls, err := crawler.ProcessURL(url)
+		discoveredUrls, htmlContent, err := crawler.ProcessURL(url, id)
 		if err != nil {
 			crawler.logger.Println("Error processing URL:", url, "Error:", err)
 			continue
@@ -188,8 +205,8 @@ func (crawler *Crawler) worker() {
 
 		robotRulesJson, _ := json.Marshal(robotRules)
 
-		if err := crawler.updateQueuesAndStorage(url, domain, &discoveredUrls, robotRulesJson, rulesExistInDb); err != nil {
-			crawler.logger.Println("Error updating queues and storage for URL:", url, "Error:", err)
+		if err := crawler.updateQueuesAndStorage(url, id, domain, &htmlContent, &discoveredUrls, &robotRulesJson, rulesExistInDb); err != nil {
+			crawler.logger.Println("Error updating queues and storage for URL:", url, "Error:", err, discoveredUrls)
 			continue
 		}
 
@@ -197,12 +214,12 @@ func (crawler *Crawler) worker() {
 	}
 }
 
-func (crawler *Crawler) updateQueuesAndStorage(url, domain string, discoveredUrls *map[string]struct{}, rulesJson []byte, rulesExistInDb bool) error {
+func (crawler *Crawler) updateQueuesAndStorage(url, id, domain string, htmlContent *[]byte, discoveredUrls *map[string]string, rulesJson *[]byte, rulesExistInDb bool) error {
 	if err := crawler.redisClient.HSet(crawler.ctx, "crawl:domain_delays", domain, time.Now().Unix()).Err(); err != nil {
 		return fmt.Errorf("failed to update domain delay for %s: %w", domain, err)
 	}
 
-	if err := crawler.redisClient.Set(context.Background(), "robots:"+domain, string(rulesJson), time.Hour*4).Err(); err != nil {
+	if err := crawler.redisClient.Set(context.Background(), "robots:"+domain, string(*rulesJson), time.Hour*4).Err(); err != nil {
 		return fmt.Errorf("failed to cache robot rules for domain %s: %w", domain, err)
 	}
 
@@ -214,14 +231,18 @@ func (crawler *Crawler) updateQueuesAndStorage(url, domain string, discoveredUrl
 		return fmt.Errorf("failed to update storage for URL %s: %w", url, err)
 	}
 
-	if err := crawler.redisClient.ZRem(context.Background(), queue.ProcessingQueue, url).Err(); err != nil {
+	if err := crawler.redisClient.ZRem(context.Background(), queue.ProcessingQueue, id+url).Err(); err != nil {
 		return fmt.Errorf("failed to remove URL %s from processing queue: %w", url, err)
+	}
+
+	if err := crawler.queueForIndexing(htmlContent, url, id); err != nil {
+		return fmt.Errorf("failed to queue URL %s for indexing: %w", url, err)
 	}
 
 	return nil
 }
 
-func (crawler *Crawler) getNextUrl() (string, error) {
+func (crawler *Crawler) getNextJob() (string, error) {
 	result, err := crawler.redisClient.BRPop(crawler.ctx, time.Second*10, queue.PendingQueue).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -230,30 +251,26 @@ func (crawler *Crawler) getNextUrl() (string, error) {
 		return "", fmt.Errorf("error fetching URL from queue: %v", err)
 	}
 
+	// 1 is job, 0 is queue name
+	job := result[1]
+
 	crawler.redisClient.ZAdd(crawler.ctx, queue.ProcessingQueue, redis.Z{
 		Score:  float64(time.Now().Unix()),
-		Member: result[1],
+		Member: job,
 	})
 
-	// 1 is url, 0 is queue name
-	return result[1], nil
+	return job, nil
 }
 
-func (crawler *Crawler) queueDiscoveredUrls(urls *map[string]struct{}) error {
+func (crawler *Crawler) queueDiscoveredUrls(urls *map[string]string) error {
 	if len(*urls) == 0 {
 		return nil
 	}
+
 	pipe := crawler.redisClient.Pipeline()
 
-	for url := range *urls {
-		exists := pipe.SIsMember(crawler.ctx, queue.SeenSet, url)
-		if exists.Val() {
-			delete(*urls, url)
-			continue
-		}
-
-		pipe.LPush(crawler.ctx, queue.PendingQueue, url)
-		pipe.SAdd(crawler.ctx, queue.SeenSet, url)
+	for url, id := range *urls {
+		pipe.LPush(crawler.ctx, queue.PendingQueue, id+url)
 	}
 
 	if _, err := pipe.Exec(crawler.ctx); err != nil {
@@ -263,13 +280,14 @@ func (crawler *Crawler) queueDiscoveredUrls(urls *map[string]struct{}) error {
 	return nil
 }
 
-func (crawler *Crawler) queueForIndexing(body []byte, url string) error {
+func (crawler *Crawler) queueForIndexing(htmlContent *[]byte, url, id string) error {
 	payload := struct {
+		id          string
 		url         string
 		htmlContent string
 		timestamp   int64
 	}{
-		url, string(body), time.Now().Unix(),
+		id, url, string(*htmlContent), time.Now().Unix(),
 	}
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
@@ -279,7 +297,7 @@ func (crawler *Crawler) queueForIndexing(body []byte, url string) error {
 	return crawler.redisClient.LPush(crawler.ctx, queue.IndexPendingQueue, payloadJSON).Err()
 }
 
-func (crawler *Crawler) updateStorage(urlString, domainString string, discoveredUrls *map[string]struct{}, rulesJson []byte, rulesExistInDb bool) error {
+func (crawler *Crawler) updateStorage(url, domain string, discoveredUrls *map[string]string, rulesJson *[]byte, rulesExistInDb bool) error {
 	tx, err := crawler.dbPool.Begin(crawler.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -291,7 +309,7 @@ func (crawler *Crawler) updateStorage(urlString, domainString string, discovered
 	queriesWithTx := queries.WithTx(tx)
 
 	if err = queriesWithTx.UpdateUrlStatus(crawler.ctx, database.UpdateUrlStatusParams{
-		Url: urlString,
+		Url: url,
 		FetchedAt: pgtype.Timestamp{
 			Time:  time.Now(),
 			Valid: true,
@@ -302,8 +320,8 @@ func (crawler *Crawler) updateStorage(urlString, domainString string, discovered
 
 	if !rulesExistInDb {
 		if err = queriesWithTx.CreateRobotRules(crawler.ctx, database.CreateRobotRulesParams{
-			Domain:    domainString,
-			RulesJson: rulesJson,
+			Domain:    domain,
+			RulesJson: *rulesJson,
 			FetchedAt: pgtype.Timestamp{
 				Time:  time.Now(),
 				Valid: true,
@@ -316,7 +334,13 @@ func (crawler *Crawler) updateStorage(urlString, domainString string, discovered
 	var discoveredUrlsParams []database.CreateUrlsParams
 
 	for discoveredUrl := range *discoveredUrls {
+		var id pgtype.UUID
+		err = id.Scan((*discoveredUrls)[discoveredUrl])
+		if err != nil {
+			return fmt.Errorf("failed to scan UUID: %w", err)
+		}
 		discoveredUrlsParams = append(discoveredUrlsParams, database.CreateUrlsParams{
+			ID:  id,
 			Url: discoveredUrl,
 		})
 	}
@@ -328,13 +352,13 @@ func (crawler *Crawler) updateStorage(urlString, domainString string, discovered
 	return tx.Commit(crawler.ctx)
 }
 
-func (crawler *Crawler) requeueUrl(urlString string) error {
-	if err := crawler.redisClient.LPush(crawler.ctx, queue.PendingQueue, urlString).Err(); err != nil {
-		return fmt.Errorf("failed to requeue URL %s: %w", urlString, err)
+func (crawler *Crawler) requeueJob(job string) error {
+	if err := crawler.redisClient.LPush(crawler.ctx, queue.PendingQueue, job).Err(); err != nil {
+		return fmt.Errorf("failed to requeue job %s: %w", job, err)
 	}
 
-	if err := crawler.redisClient.ZRem(crawler.ctx, queue.ProcessingQueue, urlString).Err(); err != nil {
-		return fmt.Errorf("failed to remove URL from processing queue %s: %w", urlString, err)
+	if err := crawler.redisClient.ZRem(crawler.ctx, queue.ProcessingQueue, job).Err(); err != nil {
+		return fmt.Errorf("failed to remove job from processing queue %s: %w", job, err)
 	}
 
 	return nil

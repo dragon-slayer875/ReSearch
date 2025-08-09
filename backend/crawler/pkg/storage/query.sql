@@ -4,9 +4,9 @@ WHERE url = $1 LIMIT 1;
 
 -- name: CreateUrls :copyfrom
 INSERT INTO urls (
-  url, fetched_at
+  id, url, fetched_at
 ) VALUES (
-  $1, $2
+  $1, $2, $3
 );
 
 -- name: UpdateUrlStatus :exec
