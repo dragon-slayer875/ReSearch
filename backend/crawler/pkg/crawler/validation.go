@@ -47,7 +47,7 @@ func isUrlOfAllowedResourceType(urlString string) (bool, error) {
 	commonWebAndImgExtensions := []string{
 		".html", ".htm", ".php", ".asp", ".aspx", ".jsp",
 		".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp",
-		".bmp", ".tiff", ".ico",
+		".bmp", ".tiff", ".ico", ".txt",
 	}
 
 	for _, ext := range commonWebAndImgExtensions {
