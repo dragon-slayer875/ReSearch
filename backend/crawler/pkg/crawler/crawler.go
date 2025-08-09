@@ -91,11 +91,9 @@ func (crawler *Crawler) ProcessURL(urlString, id string) (map[string]string, []b
 								crawler.logger.Println("Failed to check if URL is seen:", err)
 							}
 							if added == 0 {
-								crawler.logger.Println("URL already seen, skipping:", attr.Val)
 								continue
 							}
 							discoveredUrls[validatedUrl] = uuid.New().String()
-							crawler.logger.Println("Discovered URL:", validatedUrl)
 						}
 						break
 					}
