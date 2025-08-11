@@ -13,9 +13,10 @@ const (
 )
 
 type IndexJob struct {
-	Url         string
-	HtmlContent string
-	Timestamp   int64
+	JobId       string `json:"id"`
+	Url         string `json:"url"`
+	HtmlContent string `json:"html_content"`
+	Timestamp   int64  `json:"timestamp"`
 }
 
 func NewRedisClient(redisUrl string) (*redis.Client, error) {
