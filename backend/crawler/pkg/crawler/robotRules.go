@@ -19,6 +19,46 @@ type RobotRules struct {
 	Sitemaps   []string `json:"sitemaps"`
 }
 
+type RobotRulesError struct {
+	CacheError error
+	DBError    error
+	WebError   error
+	LockError  error
+}
+
+const (
+	rulesLockedError      = "Lock is already held by another worker"
+	robotRulesLockTimeout = 30 * time.Second
+)
+
+func (e *RobotRulesError) Error() string {
+	var parts []string
+	if e.CacheError != nil {
+		parts = append(parts, fmt.Sprintf("cache: %v", e.CacheError))
+	}
+	if e.DBError != nil {
+		parts = append(parts, fmt.Sprintf("db: %v", e.DBError))
+	}
+	if e.WebError != nil {
+		parts = append(parts, fmt.Sprintf("web: %v", e.WebError))
+	}
+	if e.LockError != nil {
+		parts = append(parts, fmt.Sprintf("lock: %v", e.LockError))
+	}
+	return "robot rules errors: " + strings.Join(parts, ", ")
+}
+
+func (e *RobotRulesError) HasErrors() bool {
+	return e.CacheError != nil || e.DBError != nil || e.WebError != nil || e.LockError != nil
+}
+
+func conditionalError(accErr *RobotRulesError) error {
+	if accErr.HasErrors() {
+		return accErr
+	}
+	return nil
+}
+
 func defaultRobotRules() *RobotRules {
 	return &RobotRules{
 		Allow:      []string{},
@@ -124,6 +164,9 @@ func (robotRules *RobotRules) isAllowed(url string) bool {
 	}
 
 	for _, disallowedPath := range robotRules.Disallow {
+		if disallowedPath == "/" {
+			return false
+		}
 		if strings.HasPrefix(url, disallowedPath) {
 			return false
 		}
