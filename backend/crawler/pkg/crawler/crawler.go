@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -117,6 +118,39 @@ func (crawler *Crawler) Start() {
 		}(workerID)
 	}
 
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		// transfer urls in processing queue which are older than 1 minute to pending queue
+		for {
+			processingJobs, err := crawler.redisClient.ZRangeByScore(crawler.ctx, queue.ProcessingQueue, &redis.ZRangeBy{
+				Min:    "0",
+				Max:    strconv.FormatInt(time.Now().Add(-time.Minute).Unix(), 10),
+				Offset: 0,
+				Count:  100,
+			}).Result()
+			if err != nil {
+				crawler.logger.Println("Error fetching processing jobs:", err)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+
+			if len(processingJobs) == 0 {
+				time.Sleep(2 * time.Second)
+				continue
+			}
+
+			for _, job := range processingJobs {
+				if err := crawler.requeueJob(job); err != nil {
+					crawler.logger.Println("Error requeuing job:", job, "Error:", err)
+				}
+			}
+
+		}
+
+	}()
+
 	wg.Wait()
 }
 
@@ -181,7 +215,7 @@ func (crawler *Crawler) worker(workerID int) {
 		robotRules, rulesExistInDb, err := crawler.GetRobotRules(domain, workerID)
 		if err != nil {
 			crawler.logger.Println("Error getting robot rules for", url, ". Error:", err)
-			if err == fmt.Errorf(rulesLockedError) {
+			if errors.Is(err, rulesLockedError) {
 				continue
 			}
 		}
@@ -391,7 +425,7 @@ func (crawler *Crawler) GetRobotRules(domainString string, workerID int) (*Robot
 	if lockErr != nil {
 		accErr.LockError = fmt.Errorf("lock acquire: %w", lockErr)
 	} else if !lockAcquired {
-		return nil, false, fmt.Errorf(rulesLockedError)
+		return nil, false, rulesLockedError
 	}
 
 	defer func() {

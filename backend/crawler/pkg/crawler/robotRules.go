@@ -26,10 +26,9 @@ type RobotRulesError struct {
 	LockError  error
 }
 
-const (
-	rulesLockedError      = "Lock is already held by another worker"
-	robotRulesLockTimeout = 30 * time.Second
-)
+const robotRulesLockTimeout = 30 * time.Second
+
+var rulesLockedError = fmt.Errorf("rules lock already held by another worker")
 
 func (e *RobotRulesError) Error() string {
 	var parts []string
@@ -74,7 +73,7 @@ func fetchRobotRulesFromWeb(domainString string, httpClient *http.Client) (*Robo
 		return nil, fmt.Errorf("failed to fetch robots.txt for %s: %w", domainString, err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusTeapot {
 		return nil, fmt.Errorf("robots.txt not found for %s: %s", domainString, resp.Status)
 	}
 
@@ -164,9 +163,6 @@ func (robotRules *RobotRules) isAllowed(url string) bool {
 	}
 
 	for _, disallowedPath := range robotRules.Disallow {
-		if disallowedPath == "/" {
-			return false
-		}
 		if strings.HasPrefix(url, disallowedPath) {
 			return false
 		}
