@@ -2,14 +2,12 @@ package crawler
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crawler/pkg/queue"
 	"crawler/pkg/storage/database"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -22,7 +20,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"golang.org/x/net/html"
 )
 
 type Crawler struct {
@@ -43,66 +40,6 @@ func NewCrawler(logger *log.Logger, workerCount int, redisClient *redis.Client, 
 		httpClient,
 		ctx,
 	}
-}
-
-func (crawler *Crawler) ProcessURL(urlString, id string) (map[string]string, []byte, error) {
-	resp, err := crawler.httpClient.Get(urlString)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("failed to fetch URL %s: %s", urlString, resp.Status)
-	}
-
-	var indexingBuffer bytes.Buffer
-
-	teeReader := io.TeeReader(resp.Body, &indexingBuffer)
-
-	discoveredUrls := make(map[string]string)
-
-	tokenizer := html.NewTokenizer(teeReader)
-
-	for {
-		tokenType := tokenizer.Next()
-
-		switch tokenType {
-		case html.ErrorToken:
-
-			return discoveredUrls, indexingBuffer.Bytes(), nil // EOF
-		case html.StartTagToken, html.SelfClosingTagToken:
-			token := tokenizer.Token()
-			if token.Data == "a" {
-				for _, attr := range token.Attr {
-					if attr.Key == "href" {
-						validatedUrl, err := validateUrl(urlString, attr.Val)
-						if err != nil {
-							crawler.logger.Println("Invalid URL found:", attr.Val, "Error:", err)
-							continue
-						}
-						isAllowedResource, err := isUrlOfAllowedResourceType(validatedUrl)
-						if err != nil {
-							crawler.logger.Println("Error checking if URL should be crawled:", validatedUrl, "Error:", err)
-							continue
-						}
-						if isAllowedResource {
-							added, err := crawler.redisClient.SAdd(crawler.ctx, queue.SeenSet, validatedUrl).Result()
-							if err != nil {
-								crawler.logger.Println("Failed to check if URL is seen:", err)
-							}
-							if added == 0 {
-								continue
-							}
-							discoveredUrls[validatedUrl] = uuid.New().String()
-						}
-						break
-					}
-				}
-			}
-		}
-	}
-
 }
 
 func (crawler *Crawler) Start() {
