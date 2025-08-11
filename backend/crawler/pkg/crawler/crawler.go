@@ -256,10 +256,6 @@ func (crawler *Crawler) updateQueuesAndStorage(url, id, domain string, htmlConte
 		return fmt.Errorf("failed to update domain delay for %s: %w", domain, err)
 	}
 
-	if err := crawler.redisClient.Set(context.Background(), "robots:"+domain, string(*rulesJson), time.Hour*4).Err(); err != nil {
-		return fmt.Errorf("failed to cache robot rules for domain %s: %w", domain, err)
-	}
-
 	if err := crawler.queueDiscoveredUrls(discoveredUrls); err != nil {
 		return fmt.Errorf("failed to queue discovered URLs: %w", err)
 	}
@@ -268,7 +264,7 @@ func (crawler *Crawler) updateQueuesAndStorage(url, id, domain string, htmlConte
 		return fmt.Errorf("failed to update storage for URL %s: %w", url, err)
 	}
 
-	if err := crawler.redisClient.ZRem(context.Background(), queue.ProcessingQueue, id+url).Err(); err != nil {
+	if err := crawler.redisClient.ZRem(crawler.ctx, queue.ProcessingQueue, id+url).Err(); err != nil {
 		return fmt.Errorf("failed to remove URL %s from processing queue: %w", url, err)
 	}
 
@@ -319,10 +315,10 @@ func (crawler *Crawler) queueDiscoveredUrls(urls *map[string]string) error {
 
 func (crawler *Crawler) queueForIndexing(htmlContent *[]byte, url, id string) error {
 	payload := struct {
-		id          string
-		url         string
-		htmlContent string
-		timestamp   int64
+		Id          string `json:"id"`
+		Url         string `json:"url"`
+		HtmlContent string `json:"html_content"`
+		Timestamp   int64  `json:"timestamp"`
 	}{
 		id, url, string(*htmlContent), time.Now().Unix(),
 	}
@@ -331,7 +327,7 @@ func (crawler *Crawler) queueForIndexing(htmlContent *[]byte, url, id string) er
 		return fmt.Errorf("failed to marshal indexing payload: %w", err)
 	}
 
-	return crawler.redisClient.LPush(crawler.ctx, queue.IndexPendingQueue, payloadJSON).Err()
+	return crawler.redisClient.LPush(crawler.ctx, queue.IndexPendingQueue, string(payloadJSON)).Err()
 }
 
 func (crawler *Crawler) updateStorage(url, domain string, discoveredUrls *map[string]string, rulesJson *[]byte, rulesExistInDb bool) error {
