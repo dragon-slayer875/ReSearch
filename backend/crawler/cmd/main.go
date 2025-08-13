@@ -19,7 +19,7 @@ import (
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
-	envPath := flag.String("env", "env", "Path to env variables file")
+	envPath := flag.String("env", ".env", "Path to env variables file")
 	flag.Parse()
 
 	logger := log.New(os.Stdout, "crawler: ", log.LstdFlags|log.Lshortfile)
