@@ -22,7 +22,7 @@ func main() {
 	envPath := flag.String("env", ".env", "Path to env variables file")
 	flag.Parse()
 
-	logger := log.New(os.Stdout, "crawler: ", log.LstdFlags|log.Lshortfile)
+	logger := log.New(os.Stdout, "crawler: ", log.LstdFlags)
 
 	ctx := context.Background()
 
