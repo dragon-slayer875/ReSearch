@@ -11,6 +11,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type BatchInsertInvertedIndexParams struct {
+	Word         string
+	DocumentBits []byte
+}
+
 type BatchInsertWordDataParams struct {
 	Word          string
 	UrlID         int64

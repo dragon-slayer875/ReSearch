@@ -89,6 +89,10 @@ FROM word_data
 WHERE word = $1;
 
 -- Batch operations for better performance
+-- name: BatchInsertInvertedIndex :copyfrom
+INSERT INTO inverted_index (word, document_bits)
+VALUES ($1, $2);
+
 -- name: BatchInsertWordData :copyfrom
 INSERT INTO word_data (word, url_id, position_bits, term_frequency)
 VALUES ($1, $2, $3, $4);

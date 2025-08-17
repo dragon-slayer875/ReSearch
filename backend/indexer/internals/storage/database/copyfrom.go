@@ -9,6 +9,40 @@ import (
 	"context"
 )
 
+// iteratorForBatchInsertInvertedIndex implements pgx.CopyFromSource.
+type iteratorForBatchInsertInvertedIndex struct {
+	rows                 []BatchInsertInvertedIndexParams
+	skippedFirstNextCall bool
+}
+
+func (r *iteratorForBatchInsertInvertedIndex) Next() bool {
+	if len(r.rows) == 0 {
+		return false
+	}
+	if !r.skippedFirstNextCall {
+		r.skippedFirstNextCall = true
+		return true
+	}
+	r.rows = r.rows[1:]
+	return len(r.rows) > 0
+}
+
+func (r iteratorForBatchInsertInvertedIndex) Values() ([]interface{}, error) {
+	return []interface{}{
+		r.rows[0].Word,
+		r.rows[0].DocumentBits,
+	}, nil
+}
+
+func (r iteratorForBatchInsertInvertedIndex) Err() error {
+	return nil
+}
+
+// Batch operations for better performance
+func (q *Queries) BatchInsertInvertedIndex(ctx context.Context, arg []BatchInsertInvertedIndexParams) (int64, error) {
+	return q.db.CopyFrom(ctx, []string{"inverted_index"}, []string{"word", "document_bits"}, &iteratorForBatchInsertInvertedIndex{rows: arg})
+}
+
 // iteratorForBatchInsertWordData implements pgx.CopyFromSource.
 type iteratorForBatchInsertWordData struct {
 	rows                 []BatchInsertWordDataParams
@@ -40,7 +74,6 @@ func (r iteratorForBatchInsertWordData) Err() error {
 	return nil
 }
 
-// Batch operations for better performance
 func (q *Queries) BatchInsertWordData(ctx context.Context, arg []BatchInsertWordDataParams) (int64, error) {
 	return q.db.CopyFrom(ctx, []string{"word_data"}, []string{"word", "url_id", "position_bits", "term_frequency"}, &iteratorForBatchInsertWordData{rows: arg})
 }
