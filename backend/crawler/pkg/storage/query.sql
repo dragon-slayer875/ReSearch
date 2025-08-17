@@ -9,6 +9,11 @@ INSERT INTO urls (
   $1, $2, $3
 );
 
+-- name: BatchInsertUrls :many
+INSERT INTO urls (url, fetched_at)
+SELECT unnest($1::text[]), unnest($2::timestamp[])
+RETURNING id;
+    
 -- name: UpdateUrlStatus :exec
 UPDATE urls
   SET fetched_at = $2

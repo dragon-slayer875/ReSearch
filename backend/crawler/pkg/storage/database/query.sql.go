@@ -11,6 +11,37 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const batchInsertUrls = `-- name: BatchInsertUrls :many
+INSERT INTO urls (url, fetched_at)
+SELECT unnest($1::text[]), unnest($2::timestamp[])
+RETURNING id
+`
+
+type BatchInsertUrlsParams struct {
+	Column1 []string
+	Column2 []pgtype.Timestamp
+}
+
+func (q *Queries) BatchInsertUrls(ctx context.Context, arg BatchInsertUrlsParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, batchInsertUrls, arg.Column1, arg.Column2)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createRobotRules = `-- name: CreateRobotRules :exec
 INSERT INTO robot_rules (
   domain, rules_json, fetched_at
@@ -31,7 +62,7 @@ func (q *Queries) CreateRobotRules(ctx context.Context, arg CreateRobotRulesPara
 }
 
 type CreateUrlsParams struct {
-	ID        pgtype.UUID
+	ID        int64
 	Url       string
 	FetchedAt pgtype.Timestamp
 }

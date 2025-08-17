@@ -7,12 +7,11 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/html"
 )
 
-func (crawler *Crawler) ProcessURL(urlString, id string) (map[string]string, []byte, error) {
+func (crawler *Crawler) ProcessURL(urlString string) (*[]string, []byte, error) {
 	resp, err := crawler.httpClient.Get(urlString)
 	if err != nil {
 		return nil, nil, err
@@ -71,9 +70,9 @@ func (crawler *Crawler) extractURLsFromHTML(baseURL string, htmlBytes []byte) []
 	}
 }
 
-func (crawler *Crawler) filterUnseenURLs(candidateUrls []string) (map[string]string, error) {
+func (crawler *Crawler) filterUnseenURLs(candidateUrls []string) (*[]string, error) {
 	if len(candidateUrls) == 0 {
-		return make(map[string]string), nil
+		return &[]string{}, nil
 	}
 
 	pipe := crawler.redisClient.Pipeline()
@@ -83,14 +82,13 @@ func (crawler *Crawler) filterUnseenURLs(candidateUrls []string) (map[string]str
 		saddCmds[i] = pipe.SAdd(crawler.ctx, queue.SeenSet, url)
 	}
 
-	// Execute pipeline
 	_, err := pipe.Exec(crawler.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("redis pipeline failed: %w", err)
 	}
 
 	// Collect URLs that were newly added (return value 1 means new)
-	discoveredUrls := make(map[string]string)
+	discoveredUrls := make([]string, 0, len(candidateUrls))
 	for i, cmd := range saddCmds {
 		added, err := cmd.Result()
 		if err != nil {
@@ -98,9 +96,9 @@ func (crawler *Crawler) filterUnseenURLs(candidateUrls []string) (map[string]str
 			continue
 		}
 		if added == 1 { // New URL
-			discoveredUrls[candidateUrls[i]] = uuid.New().String()
+			discoveredUrls = append(discoveredUrls, candidateUrls[i])
 		}
 	}
 
-	return discoveredUrls, nil
+	return &discoveredUrls, nil
 }

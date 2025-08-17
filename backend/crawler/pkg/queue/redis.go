@@ -10,8 +10,14 @@ const (
 	PendingQueue      = "crawl:pending"
 	ProcessingQueue   = "crawl:processing"
 	SeenSet           = "crawl:seen"
+	DiscardQueue      = "crawl:discard"
 	IndexPendingQueue = "index:pending"
 )
+
+type Job struct {
+	Url string `json:"url"`
+	Id  int64  `json:"id"`
+}
 
 func NewRedisClient(redisUrl string) (*redis.Client, error) {
 	redisOpts, err := redis.ParseURL(redisUrl)
