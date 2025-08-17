@@ -1,5 +1,5 @@
 CREATE TABLE urls (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id BIGSERIAL PRIMARY KEY,
     url TEXT NOT NULL UNIQUE,
     fetched_at TIMESTAMP
 );
@@ -12,7 +12,7 @@ CREATE TABLE robot_rules (
 );
 
 CREATE TABLE metadata (
-    url_id UUID PRIMARY KEY,
+    url_id BIGSERIAL PRIMARY KEY,
     title TEXT,
     meta_title TEXT,
     meta_description TEXT,
@@ -29,7 +29,7 @@ CREATE TABLE inverted_index (
 
 CREATE TABLE word_data (
     word TEXT NOT NULL,
-    url_id UUID NOT NULL,
+    url_id BIGSERIAL NOT NULL,
     position_bits BYTEA NOT NULL,
     term_frequency INTEGER NOT NULL,
 

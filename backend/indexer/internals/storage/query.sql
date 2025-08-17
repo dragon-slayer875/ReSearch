@@ -95,7 +95,7 @@ VALUES ($1, $2, $3, $4);
 
 -- name: BatchUpsertWordData :exec
 INSERT INTO word_data (word, url_id, position_bits, term_frequency)
-SELECT unnest($1::text[]), unnest($2::uuid[]), unnest($3::bytea[]), unnest($4::int[])
+SELECT unnest($1::text[]), unnest($2::bigserial[]), unnest($3::bytea[]), unnest($4::int[])
 ON CONFLICT (word, url_id) DO UPDATE SET
     position_bits = EXCLUDED.position_bits,
     term_frequency = EXCLUDED.term_frequency;

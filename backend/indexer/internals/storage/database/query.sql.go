@@ -13,14 +13,14 @@ import (
 
 type BatchInsertWordDataParams struct {
 	Word          string
-	UrlID         pgtype.UUID
+	UrlID         int64
 	PositionBits  []byte
 	TermFrequency int32
 }
 
 const batchUpsertWordData = `-- name: BatchUpsertWordData :exec
 INSERT INTO word_data (word, url_id, position_bits, term_frequency)
-SELECT unnest($1::text[]), unnest($2::uuid[]), unnest($3::bytea[]), unnest($4::int[])
+SELECT unnest($1::text[]), unnest($2::bigserial[]), unnest($3::bytea[]), unnest($4::int[])
 ON CONFLICT (word, url_id) DO UPDATE SET
     position_bits = EXCLUDED.position_bits,
     term_frequency = EXCLUDED.term_frequency
@@ -28,7 +28,7 @@ ON CONFLICT (word, url_id) DO UPDATE SET
 
 type BatchUpsertWordDataParams struct {
 	Column1 []string
-	Column2 []pgtype.UUID
+	Column2 []int64
 	Column3 [][]byte
 	Column4 []int32
 }
@@ -47,7 +47,7 @@ const getDocumentWordCount = `-- name: GetDocumentWordCount :one
 SELECT COUNT(*) FROM word_data WHERE url_id = $1
 `
 
-func (q *Queries) GetDocumentWordCount(ctx context.Context, urlID pgtype.UUID) (int64, error) {
+func (q *Queries) GetDocumentWordCount(ctx context.Context, urlID int64) (int64, error) {
 	row := q.db.QueryRow(ctx, getDocumentWordCount, urlID)
 	var count int64
 	err := row.Scan(&count)
@@ -99,7 +99,7 @@ FROM metadata
 WHERE url_id = $1
 `
 
-func (q *Queries) GetMetadataByURLID(ctx context.Context, urlID pgtype.UUID) (Metadata, error) {
+func (q *Queries) GetMetadataByURLID(ctx context.Context, urlID int64) (Metadata, error) {
 	row := q.db.QueryRow(ctx, getMetadataByURLID, urlID)
 	var i Metadata
 	err := row.Scan(
@@ -130,7 +130,7 @@ FROM word_data
 WHERE url_id = $1
 `
 
-func (q *Queries) GetWordDataByURL(ctx context.Context, urlID pgtype.UUID) ([]WordDatum, error) {
+func (q *Queries) GetWordDataByURL(ctx context.Context, urlID int64) ([]WordDatum, error) {
 	rows, err := q.db.Query(ctx, getWordDataByURL, urlID)
 	if err != nil {
 		return nil, err
@@ -194,7 +194,7 @@ WHERE word = $1 AND url_id = $2
 
 type GetWordDataByWordAndURLParams struct {
 	Word  string
-	UrlID pgtype.UUID
+	UrlID int64
 }
 
 func (q *Queries) GetWordDataByWordAndURL(ctx context.Context, arg GetWordDataByWordAndURLParams) (WordDatum, error) {
@@ -213,7 +213,7 @@ const getWordFrequencySum = `-- name: GetWordFrequencySum :one
 SELECT COALESCE(SUM(term_frequency), 0) FROM word_data WHERE url_id = $1
 `
 
-func (q *Queries) GetWordFrequencySum(ctx context.Context, urlID pgtype.UUID) (interface{}, error) {
+func (q *Queries) GetWordFrequencySum(ctx context.Context, urlID int64) (interface{}, error) {
 	row := q.db.QueryRow(ctx, getWordFrequencySum, urlID)
 	var coalesce interface{}
 	err := row.Scan(&coalesce)
@@ -246,7 +246,7 @@ RETURNING url_id, title, meta_title, meta_description, meta_robots
 `
 
 type InsertMetadataParams struct {
-	UrlID           pgtype.UUID
+	UrlID           int64
 	Title           pgtype.Text
 	MetaTitle       pgtype.Text
 	MetaDescription pgtype.Text
@@ -280,7 +280,7 @@ RETURNING word, url_id, position_bits, term_frequency
 
 type InsertWordDataParams struct {
 	Word          string
-	UrlID         pgtype.UUID
+	UrlID         int64
 	PositionBits  []byte
 	TermFrequency int32
 }
@@ -330,7 +330,7 @@ RETURNING url_id, title, meta_title, meta_description, meta_robots
 `
 
 type UpdateMetadataParams struct {
-	UrlID           pgtype.UUID
+	UrlID           int64
 	Title           pgtype.Text
 	MetaTitle       pgtype.Text
 	MetaDescription pgtype.Text
@@ -365,7 +365,7 @@ RETURNING word, url_id, position_bits, term_frequency
 
 type UpdateWordDataParams struct {
 	Word          string
-	UrlID         pgtype.UUID
+	UrlID         int64
 	PositionBits  []byte
 	TermFrequency int32
 }
@@ -419,7 +419,7 @@ RETURNING url_id, title, meta_title, meta_description, meta_robots
 `
 
 type UpsertMetadataParams struct {
-	UrlID           pgtype.UUID
+	UrlID           int64
 	Title           pgtype.Text
 	MetaTitle       pgtype.Text
 	MetaDescription pgtype.Text
@@ -456,7 +456,7 @@ RETURNING word, url_id, position_bits, term_frequency
 
 type UpsertWordDataParams struct {
 	Word          string
-	UrlID         pgtype.UUID
+	UrlID         int64
 	PositionBits  []byte
 	TermFrequency int32
 }

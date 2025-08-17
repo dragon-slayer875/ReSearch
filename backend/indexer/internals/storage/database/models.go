@@ -14,7 +14,7 @@ type InvertedIndex struct {
 }
 
 type Metadata struct {
-	UrlID           pgtype.UUID
+	UrlID           int64
 	Title           pgtype.Text
 	MetaTitle       pgtype.Text
 	MetaDescription pgtype.Text
@@ -28,14 +28,14 @@ type RobotRule struct {
 }
 
 type Url struct {
-	ID        pgtype.UUID
+	ID        int64
 	Url       string
 	FetchedAt pgtype.Timestamp
 }
 
 type WordDatum struct {
 	Word          string
-	UrlID         pgtype.UUID
+	UrlID         int64
 	PositionBits  []byte
 	TermFrequency int32
 }

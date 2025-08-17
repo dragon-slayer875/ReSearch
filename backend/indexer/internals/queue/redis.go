@@ -13,7 +13,7 @@ const (
 )
 
 type IndexJob struct {
-	JobId       string `json:"id"`
+	JobId       int64  `json:"id"`
 	Url         string `json:"url"`
 	HtmlContent string `json:"html_content"`
 	Timestamp   int64  `json:"timestamp"`
