@@ -62,7 +62,7 @@ func (crawler *Crawler) Start() {
 		for {
 			processingJobs, err := crawler.redisClient.ZRangeByScore(crawler.ctx, queue.ProcessingQueue, &redis.ZRangeBy{
 				Min:    "0",
-				Max:    strconv.FormatInt(time.Now().Add(-time.Minute).Unix(), 10),
+				Max:    strconv.FormatInt(time.Now().Add(-time.Minute*30).Unix(), 10),
 				Offset: 0,
 				Count:  100,
 			}).Result()
