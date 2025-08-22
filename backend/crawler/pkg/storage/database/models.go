@@ -11,6 +11,7 @@ import (
 type InvertedIndex struct {
 	Word         string
 	DocumentBits []byte
+	DocFrequency int64
 }
 
 type Metadata struct {
@@ -38,4 +39,6 @@ type WordDatum struct {
 	UrlID         int64
 	PositionBits  []byte
 	TermFrequency int32
+	Idf           pgtype.Float8
+	TfIdf         pgtype.Float8
 }
