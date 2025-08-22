@@ -18,6 +18,7 @@ import (
 )
 
 func main() {
+	seedPath := flag.String("seed", "", "Path to seed URLs file")
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
 	envPath := flag.String("env", ".env", "Path to env variables file")
 	flag.Parse()
@@ -67,8 +68,8 @@ func main() {
 
 	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient, dbPool, httpClient, context.Background())
 
-	if cfg.Crawler.SeedPath != "" {
-		Crawler.PublishSeedUrls(cfg.Crawler.SeedPath)
+	if *seedPath != "" {
+		Crawler.PublishSeedUrls(*seedPath)
 	}
 
 	logger.Println("Starting...")

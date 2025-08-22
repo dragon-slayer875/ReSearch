@@ -1,5 +1,4 @@
 crawler:
-  seed_path: ""
   worker_count: 5
   http_timeout: 0
   max_idle_conns: 100
