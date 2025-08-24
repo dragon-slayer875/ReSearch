@@ -179,6 +179,11 @@ func (crawler *Crawler) worker(workerID int) {
 
 		discoveredUrls, htmlContent, err := crawler.ProcessURL(url)
 		if err != nil {
+			if err == notEnglishPage {
+				if err := crawler.discardUrl(jobJson); err != nil {
+					crawler.logger.Println("Error discarding URL:", url, "Error:", err)
+				}
+			}
 			crawler.logger.Println("Error processing URL:", url, "Error:", err)
 			continue
 		}

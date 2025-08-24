@@ -6,9 +6,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/html"
+)
+
+var (
+	notEnglishPage = fmt.Errorf("not an English page")
 )
 
 func (crawler *Crawler) ProcessURL(urlString string) (*[]string, []byte, error) {
@@ -27,7 +32,10 @@ func (crawler *Crawler) ProcessURL(urlString string) (*[]string, []byte, error) 
 		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	candidateUrls := crawler.extractURLsFromHTML(urlString, bodyBytes)
+	candidateUrls, err := crawler.extractURLsFromHTML(urlString, bodyBytes)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	discoveredUrls, err := crawler.filterUnseenURLs(candidateUrls)
 	if err != nil {
@@ -37,7 +45,7 @@ func (crawler *Crawler) ProcessURL(urlString string) (*[]string, []byte, error) 
 	return discoveredUrls, bodyBytes, nil
 }
 
-func (crawler *Crawler) extractURLsFromHTML(baseURL string, htmlBytes []byte) []string {
+func (crawler *Crawler) extractURLsFromHTML(baseURL string, htmlBytes []byte) (*[]string, error) {
 	var candidateUrls []string
 	tokenizer := html.NewTokenizer(bytes.NewReader(htmlBytes))
 
@@ -45,9 +53,21 @@ func (crawler *Crawler) extractURLsFromHTML(baseURL string, htmlBytes []byte) []
 		tokenType := tokenizer.Next()
 		switch tokenType {
 		case html.ErrorToken:
-			return candidateUrls // EOF
+			return &candidateUrls, nil // EOF
 		case html.StartTagToken, html.SelfClosingTagToken:
 			token := tokenizer.Token()
+
+			if token.Data == "html" {
+				for _, attr := range token.Attr {
+					if attr.Key == "lang" {
+						lang := strings.ToLower(attr.Val)
+						if lang != "en" && !strings.HasPrefix(lang, "en-") {
+							return nil, notEnglishPage // Non-English page, skip processing
+						}
+					}
+				}
+			}
+
 			if token.Data == "a" {
 				for _, attr := range token.Attr {
 					if attr.Key == "href" {
@@ -70,15 +90,15 @@ func (crawler *Crawler) extractURLsFromHTML(baseURL string, htmlBytes []byte) []
 	}
 }
 
-func (crawler *Crawler) filterUnseenURLs(candidateUrls []string) (*[]string, error) {
-	if len(candidateUrls) == 0 {
+func (crawler *Crawler) filterUnseenURLs(candidateUrls *[]string) (*[]string, error) {
+	if len(*candidateUrls) == 0 {
 		return &[]string{}, nil
 	}
 
 	pipe := crawler.redisClient.Pipeline()
 
-	saddCmds := make([]*redis.IntCmd, len(candidateUrls))
-	for i, url := range candidateUrls {
+	saddCmds := make([]*redis.IntCmd, len(*candidateUrls))
+	for i, url := range *candidateUrls {
 		saddCmds[i] = pipe.SAdd(crawler.ctx, queue.SeenSet, url)
 	}
 
@@ -88,15 +108,15 @@ func (crawler *Crawler) filterUnseenURLs(candidateUrls []string) (*[]string, err
 	}
 
 	// Collect URLs that were newly added (return value 1 means new)
-	discoveredUrls := make([]string, 0, len(candidateUrls))
+	discoveredUrls := make([]string, 0, len(*candidateUrls))
 	for i, cmd := range saddCmds {
 		added, err := cmd.Result()
 		if err != nil {
-			crawler.logger.Printf("Failed to check URL %s: %v", candidateUrls[i], err)
+			crawler.logger.Printf("Failed to check URL %s: %v", (*candidateUrls)[i], err)
 			continue
 		}
 		if added == 1 { // New URL
-			discoveredUrls = append(discoveredUrls, candidateUrls[i])
+			discoveredUrls = append(discoveredUrls, (*candidateUrls)[i])
 		}
 	}
 
