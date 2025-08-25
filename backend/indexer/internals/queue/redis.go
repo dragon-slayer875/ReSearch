@@ -7,9 +7,10 @@ import (
 )
 
 const (
-	PendingQueue    = "index:pending"
-	ProcessingQueue = "index:processing"
-	SeenSet         = "index:seen"
+	PendingQueue        = "index:pending"
+	ProcessingQueue     = "index:processing"
+	PostPendingQueue    = "post:pending"
+	PostProcessingQueue = "post:processing"
 )
 
 type IndexJob struct {
