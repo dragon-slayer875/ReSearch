@@ -24,7 +24,8 @@ CREATE INDEX idx_metadata_url_id ON metadata(url_id);
 
 CREATE TABLE inverted_index (
     word TEXT PRIMARY KEY,
-    document_bits BYTEA NOT NULL
+    document_bits BYTEA NOT NULL,
+    doc_frequency BIGINT NOT NULL
 );
 
 CREATE TABLE word_data (
@@ -32,6 +33,8 @@ CREATE TABLE word_data (
     url_id BIGSERIAL NOT NULL,
     position_bits BYTEA NOT NULL,
     term_frequency INTEGER NOT NULL,
+    idf DOUBLE PRECISION,
+    tf_idf DOUBLE PRECISION,
 
     CONSTRAINT pk_word_data PRIMARY KEY (word, url_id),
     CONSTRAINT fk_word_data_url_id FOREIGN KEY (url_id) REFERENCES urls(id) ON DELETE CASCADE,

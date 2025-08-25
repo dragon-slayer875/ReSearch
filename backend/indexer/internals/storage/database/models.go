@@ -9,33 +9,36 @@ import (
 )
 
 type InvertedIndex struct {
-	Word         string
-	DocumentBits []byte
+	Word         string `json:"word"`
+	DocumentBits []byte `json:"document_bits"`
+	DocFrequency int64  `json:"doc_frequency"`
 }
 
 type Metadata struct {
-	UrlID           int64
-	Title           pgtype.Text
-	MetaTitle       pgtype.Text
-	MetaDescription pgtype.Text
-	MetaRobots      pgtype.Text
+	UrlID           int64       `json:"url_id"`
+	Title           pgtype.Text `json:"title"`
+	MetaTitle       pgtype.Text `json:"meta_title"`
+	MetaDescription pgtype.Text `json:"meta_description"`
+	MetaRobots      pgtype.Text `json:"meta_robots"`
 }
 
 type RobotRule struct {
-	Domain    string
-	RulesJson []byte
-	FetchedAt pgtype.Timestamp
+	Domain    string           `json:"domain"`
+	RulesJson []byte           `json:"rules_json"`
+	FetchedAt pgtype.Timestamp `json:"fetched_at"`
 }
 
 type Url struct {
-	ID        int64
-	Url       string
-	FetchedAt pgtype.Timestamp
+	ID        int64            `json:"id"`
+	Url       string           `json:"url"`
+	FetchedAt pgtype.Timestamp `json:"fetched_at"`
 }
 
 type WordDatum struct {
-	Word          string
-	UrlID         int64
-	PositionBits  []byte
-	TermFrequency int32
+	Word          string        `json:"word"`
+	UrlID         int64         `json:"url_id"`
+	PositionBits  []byte        `json:"position_bits"`
+	TermFrequency int32         `json:"term_frequency"`
+	Idf           pgtype.Float8 `json:"idf"`
+	TfIdf         pgtype.Float8 `json:"tf_idf"`
 }

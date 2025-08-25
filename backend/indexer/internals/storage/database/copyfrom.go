@@ -9,13 +9,13 @@ import (
 	"context"
 )
 
-// iteratorForBatchInsertInvertedIndex implements pgx.CopyFromSource.
-type iteratorForBatchInsertInvertedIndex struct {
-	rows                 []BatchInsertInvertedIndexParams
+// iteratorForBatchInsertInvertedIndexWithoutResult implements pgx.CopyFromSource.
+type iteratorForBatchInsertInvertedIndexWithoutResult struct {
+	rows                 []BatchInsertInvertedIndexWithoutResultParams
 	skippedFirstNextCall bool
 }
 
-func (r *iteratorForBatchInsertInvertedIndex) Next() bool {
+func (r *iteratorForBatchInsertInvertedIndexWithoutResult) Next() bool {
 	if len(r.rows) == 0 {
 		return false
 	}
@@ -27,20 +27,21 @@ func (r *iteratorForBatchInsertInvertedIndex) Next() bool {
 	return len(r.rows) > 0
 }
 
-func (r iteratorForBatchInsertInvertedIndex) Values() ([]interface{}, error) {
+func (r iteratorForBatchInsertInvertedIndexWithoutResult) Values() ([]interface{}, error) {
 	return []interface{}{
 		r.rows[0].Word,
 		r.rows[0].DocumentBits,
+		r.rows[0].DocFrequency,
 	}, nil
 }
 
-func (r iteratorForBatchInsertInvertedIndex) Err() error {
+func (r iteratorForBatchInsertInvertedIndexWithoutResult) Err() error {
 	return nil
 }
 
-// Batch operations for better performance
-func (q *Queries) BatchInsertInvertedIndex(ctx context.Context, arg []BatchInsertInvertedIndexParams) (int64, error) {
-	return q.db.CopyFrom(ctx, []string{"inverted_index"}, []string{"word", "document_bits"}, &iteratorForBatchInsertInvertedIndex{rows: arg})
+// Batch operations
+func (q *Queries) BatchInsertInvertedIndexWithoutResult(ctx context.Context, arg []BatchInsertInvertedIndexWithoutResultParams) (int64, error) {
+	return q.db.CopyFrom(ctx, []string{"inverted_index"}, []string{"word", "document_bits", "doc_frequency"}, &iteratorForBatchInsertInvertedIndexWithoutResult{rows: arg})
 }
 
 // iteratorForBatchInsertWordData implements pgx.CopyFromSource.

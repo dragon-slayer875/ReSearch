@@ -11,41 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type BatchInsertInvertedIndexParams struct {
-	Word         string
-	DocumentBits []byte
+type BatchInsertInvertedIndexWithoutResultParams struct {
+	Word         string `json:"word"`
+	DocumentBits []byte `json:"document_bits"`
+	DocFrequency int64  `json:"doc_frequency"`
 }
 
 type BatchInsertWordDataParams struct {
-	Word          string
-	UrlID         int64
-	PositionBits  []byte
-	TermFrequency int32
-}
-
-const batchUpsertWordData = `-- name: BatchUpsertWordData :exec
-INSERT INTO word_data (word, url_id, position_bits, term_frequency)
-SELECT unnest($1::text[]), unnest($2::bigserial[]), unnest($3::bytea[]), unnest($4::int[])
-ON CONFLICT (word, url_id) DO UPDATE SET
-    position_bits = EXCLUDED.position_bits,
-    term_frequency = EXCLUDED.term_frequency
-`
-
-type BatchUpsertWordDataParams struct {
-	Column1 []string
-	Column2 []int64
-	Column3 [][]byte
-	Column4 []int32
-}
-
-func (q *Queries) BatchUpsertWordData(ctx context.Context, arg BatchUpsertWordDataParams) error {
-	_, err := q.db.Exec(ctx, batchUpsertWordData,
-		arg.Column1,
-		arg.Column2,
-		arg.Column3,
-		arg.Column4,
-	)
-	return err
+	Word          string `json:"word"`
+	UrlID         int64  `json:"url_id"`
+	PositionBits  []byte `json:"position_bits"`
+	TermFrequency int32  `json:"term_frequency"`
 }
 
 const getDocumentWordCount = `-- name: GetDocumentWordCount :one
@@ -59,21 +35,8 @@ func (q *Queries) GetDocumentWordCount(ctx context.Context, urlID int64) (int64,
 	return count, err
 }
 
-const getInvertedIndexByWord = `-- name: GetInvertedIndexByWord :one
-SELECT word, document_bits
-FROM inverted_index
-WHERE word = $1
-`
-
-func (q *Queries) GetInvertedIndexByWord(ctx context.Context, word string) (InvertedIndex, error) {
-	row := q.db.QueryRow(ctx, getInvertedIndexByWord, word)
-	var i InvertedIndex
-	err := row.Scan(&i.Word, &i.DocumentBits)
-	return i, err
-}
-
 const getInvertedIndexByWords = `-- name: GetInvertedIndexByWords :many
-SELECT word, document_bits
+SELECT word, document_bits, doc_frequency 
 FROM inverted_index
 WHERE word = ANY($1::text[])
 `
@@ -87,7 +50,7 @@ func (q *Queries) GetInvertedIndexByWords(ctx context.Context, dollar_1 []string
 	var items []InvertedIndex
 	for rows.Next() {
 		var i InvertedIndex
-		if err := rows.Scan(&i.Word, &i.DocumentBits); err != nil {
+		if err := rows.Scan(&i.Word, &i.DocumentBits, &i.DocFrequency); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -117,11 +80,22 @@ func (q *Queries) GetMetadataByURLID(ctx context.Context, urlID int64) (Metadata
 	return i, err
 }
 
+const getTotalIndexedDocumentCount = `-- name: GetTotalIndexedDocumentCount :one
+SELECT COUNT(DISTINCT url_id) FROM word_data
+`
+
+// Additional utility queries
+func (q *Queries) GetTotalIndexedDocumentCount(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, getTotalIndexedDocumentCount)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getWordCount = `-- name: GetWordCount :one
 SELECT COUNT(*) FROM inverted_index
 `
 
-// Additional utility queries
 func (q *Queries) GetWordCount(ctx context.Context) (int64, error) {
 	row := q.db.QueryRow(ctx, getWordCount)
 	var count int64
@@ -130,7 +104,7 @@ func (q *Queries) GetWordCount(ctx context.Context) (int64, error) {
 }
 
 const getWordDataByURL = `-- name: GetWordDataByURL :many
-SELECT word, url_id, position_bits, term_frequency
+SELECT word, url_id, position_bits, term_frequency, idf, tf_idf
 FROM word_data
 WHERE url_id = $1
 `
@@ -149,6 +123,8 @@ func (q *Queries) GetWordDataByURL(ctx context.Context, urlID int64) ([]WordDatu
 			&i.UrlID,
 			&i.PositionBits,
 			&i.TermFrequency,
+			&i.Idf,
+			&i.TfIdf,
 		); err != nil {
 			return nil, err
 		}
@@ -161,7 +137,7 @@ func (q *Queries) GetWordDataByURL(ctx context.Context, urlID int64) ([]WordDatu
 }
 
 const getWordDataByWord = `-- name: GetWordDataByWord :many
-SELECT word, url_id, position_bits, term_frequency
+SELECT word, url_id, position_bits, term_frequency, idf, tf_idf
 FROM word_data
 WHERE word = $1
 `
@@ -180,6 +156,8 @@ func (q *Queries) GetWordDataByWord(ctx context.Context, word string) ([]WordDat
 			&i.UrlID,
 			&i.PositionBits,
 			&i.TermFrequency,
+			&i.Idf,
+			&i.TfIdf,
 		); err != nil {
 			return nil, err
 		}
@@ -192,14 +170,14 @@ func (q *Queries) GetWordDataByWord(ctx context.Context, word string) ([]WordDat
 }
 
 const getWordDataByWordAndURL = `-- name: GetWordDataByWordAndURL :one
-SELECT word, url_id, position_bits, term_frequency
+SELECT word, url_id, position_bits, term_frequency, idf, tf_idf
 FROM word_data
 WHERE word = $1 AND url_id = $2
 `
 
 type GetWordDataByWordAndURLParams struct {
-	Word  string
-	UrlID int64
+	Word  string `json:"word"`
+	UrlID int64  `json:"url_id"`
 }
 
 func (q *Queries) GetWordDataByWordAndURL(ctx context.Context, arg GetWordDataByWordAndURLParams) (WordDatum, error) {
@@ -210,6 +188,8 @@ func (q *Queries) GetWordDataByWordAndURL(ctx context.Context, arg GetWordDataBy
 		&i.UrlID,
 		&i.PositionBits,
 		&i.TermFrequency,
+		&i.Idf,
+		&i.TfIdf,
 	)
 	return i, err
 }
@@ -226,259 +206,121 @@ func (q *Queries) GetWordFrequencySum(ctx context.Context, urlID int64) (interfa
 }
 
 const insertInvertedIndex = `-- name: InsertInvertedIndex :one
-INSERT INTO inverted_index (word, document_bits)
-VALUES ($1, $2)
-RETURNING word, document_bits
+INSERT INTO inverted_index (word, document_bits, doc_frequency)
+VALUES ($1, $2, $3)
+RETURNING word, document_bits, doc_frequency
 `
 
 type InsertInvertedIndexParams struct {
-	Word         string
-	DocumentBits []byte
+	Word         string `json:"word"`
+	DocumentBits []byte `json:"document_bits"`
+	DocFrequency int64  `json:"doc_frequency"`
 }
 
 // Inverted Index Queries
 func (q *Queries) InsertInvertedIndex(ctx context.Context, arg InsertInvertedIndexParams) (InvertedIndex, error) {
-	row := q.db.QueryRow(ctx, insertInvertedIndex, arg.Word, arg.DocumentBits)
+	row := q.db.QueryRow(ctx, insertInvertedIndex, arg.Word, arg.DocumentBits, arg.DocFrequency)
 	var i InvertedIndex
-	err := row.Scan(&i.Word, &i.DocumentBits)
+	err := row.Scan(&i.Word, &i.DocumentBits, &i.DocFrequency)
 	return i, err
 }
 
-const insertMetadata = `-- name: InsertMetadata :one
+const insertMetadata = `-- name: InsertMetadata :exec
 INSERT INTO metadata (url_id, title, meta_title, meta_description, meta_robots)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING url_id, title, meta_title, meta_description, meta_robots
 `
 
 type InsertMetadataParams struct {
-	UrlID           int64
-	Title           pgtype.Text
-	MetaTitle       pgtype.Text
-	MetaDescription pgtype.Text
-	MetaRobots      pgtype.Text
+	UrlID           int64       `json:"url_id"`
+	Title           pgtype.Text `json:"title"`
+	MetaTitle       pgtype.Text `json:"meta_title"`
+	MetaDescription pgtype.Text `json:"meta_description"`
+	MetaRobots      pgtype.Text `json:"meta_robots"`
 }
 
-func (q *Queries) InsertMetadata(ctx context.Context, arg InsertMetadataParams) (Metadata, error) {
-	row := q.db.QueryRow(ctx, insertMetadata,
+func (q *Queries) InsertMetadata(ctx context.Context, arg InsertMetadataParams) error {
+	_, err := q.db.Exec(ctx, insertMetadata,
 		arg.UrlID,
 		arg.Title,
 		arg.MetaTitle,
 		arg.MetaDescription,
 		arg.MetaRobots,
 	)
-	var i Metadata
-	err := row.Scan(
-		&i.UrlID,
-		&i.Title,
-		&i.MetaTitle,
-		&i.MetaDescription,
-		&i.MetaRobots,
-	)
-	return i, err
+	return err
 }
 
-const insertWordData = `-- name: InsertWordData :one
+const insertWordData = `-- name: InsertWordData :exec
 INSERT INTO word_data (word, url_id, position_bits, term_frequency)
 VALUES ($1, $2, $3, $4)
-RETURNING word, url_id, position_bits, term_frequency
 `
 
 type InsertWordDataParams struct {
-	Word          string
-	UrlID         int64
-	PositionBits  []byte
-	TermFrequency int32
+	Word          string `json:"word"`
+	UrlID         int64  `json:"url_id"`
+	PositionBits  []byte `json:"position_bits"`
+	TermFrequency int32  `json:"term_frequency"`
 }
 
 // Word Data Queries
-func (q *Queries) InsertWordData(ctx context.Context, arg InsertWordDataParams) (WordDatum, error) {
-	row := q.db.QueryRow(ctx, insertWordData,
+func (q *Queries) InsertWordData(ctx context.Context, arg InsertWordDataParams) error {
+	_, err := q.db.Exec(ctx, insertWordData,
 		arg.Word,
 		arg.UrlID,
 		arg.PositionBits,
 		arg.TermFrequency,
 	)
-	var i WordDatum
-	err := row.Scan(
-		&i.Word,
-		&i.UrlID,
-		&i.PositionBits,
-		&i.TermFrequency,
-	)
-	return i, err
+	return err
 }
 
-const updateInvertedIndex = `-- name: UpdateInvertedIndex :one
-UPDATE inverted_index 
-SET document_bits = $2
-WHERE word = $1
-RETURNING word, document_bits
-`
-
-type UpdateInvertedIndexParams struct {
-	Word         string
-	DocumentBits []byte
-}
-
-func (q *Queries) UpdateInvertedIndex(ctx context.Context, arg UpdateInvertedIndexParams) (InvertedIndex, error) {
-	row := q.db.QueryRow(ctx, updateInvertedIndex, arg.Word, arg.DocumentBits)
-	var i InvertedIndex
-	err := row.Scan(&i.Word, &i.DocumentBits)
-	return i, err
-}
-
-const updateMetadata = `-- name: UpdateMetadata :one
+const updateMetadata = `-- name: UpdateMetadata :exec
 UPDATE metadata 
 SET title = $2, meta_title = $3, meta_description = $4, meta_robots = $5
 WHERE url_id = $1
-RETURNING url_id, title, meta_title, meta_description, meta_robots
 `
 
 type UpdateMetadataParams struct {
-	UrlID           int64
-	Title           pgtype.Text
-	MetaTitle       pgtype.Text
-	MetaDescription pgtype.Text
-	MetaRobots      pgtype.Text
+	UrlID           int64       `json:"url_id"`
+	Title           pgtype.Text `json:"title"`
+	MetaTitle       pgtype.Text `json:"meta_title"`
+	MetaDescription pgtype.Text `json:"meta_description"`
+	MetaRobots      pgtype.Text `json:"meta_robots"`
 }
 
-func (q *Queries) UpdateMetadata(ctx context.Context, arg UpdateMetadataParams) (Metadata, error) {
-	row := q.db.QueryRow(ctx, updateMetadata,
+func (q *Queries) UpdateMetadata(ctx context.Context, arg UpdateMetadataParams) error {
+	_, err := q.db.Exec(ctx, updateMetadata,
 		arg.UrlID,
 		arg.Title,
 		arg.MetaTitle,
 		arg.MetaDescription,
 		arg.MetaRobots,
 	)
-	var i Metadata
-	err := row.Scan(
-		&i.UrlID,
-		&i.Title,
-		&i.MetaTitle,
-		&i.MetaDescription,
-		&i.MetaRobots,
-	)
-	return i, err
+	return err
 }
 
-const updateWordData = `-- name: UpdateWordData :one
+const updateWordData = `-- name: UpdateWordData :exec
 UPDATE word_data 
-SET position_bits = $3, term_frequency = $4
+SET position_bits = $3, term_frequency = $4,
+    idf = $5, tf_idf = $6
 WHERE word = $1 AND url_id = $2
-RETURNING word, url_id, position_bits, term_frequency
 `
 
 type UpdateWordDataParams struct {
-	Word          string
-	UrlID         int64
-	PositionBits  []byte
-	TermFrequency int32
+	Word          string        `json:"word"`
+	UrlID         int64         `json:"url_id"`
+	PositionBits  []byte        `json:"position_bits"`
+	TermFrequency int32         `json:"term_frequency"`
+	Idf           pgtype.Float8 `json:"idf"`
+	TfIdf         pgtype.Float8 `json:"tf_idf"`
 }
 
-func (q *Queries) UpdateWordData(ctx context.Context, arg UpdateWordDataParams) (WordDatum, error) {
-	row := q.db.QueryRow(ctx, updateWordData,
+func (q *Queries) UpdateWordData(ctx context.Context, arg UpdateWordDataParams) error {
+	_, err := q.db.Exec(ctx, updateWordData,
 		arg.Word,
 		arg.UrlID,
 		arg.PositionBits,
 		arg.TermFrequency,
+		arg.Idf,
+		arg.TfIdf,
 	)
-	var i WordDatum
-	err := row.Scan(
-		&i.Word,
-		&i.UrlID,
-		&i.PositionBits,
-		&i.TermFrequency,
-	)
-	return i, err
-}
-
-const upsertInvertedIndex = `-- name: UpsertInvertedIndex :one
-INSERT INTO inverted_index (word, document_bits)
-VALUES ($1, $2)
-ON CONFLICT (word) DO UPDATE SET
-    document_bits = EXCLUDED.document_bits
-RETURNING word, document_bits
-`
-
-type UpsertInvertedIndexParams struct {
-	Word         string
-	DocumentBits []byte
-}
-
-func (q *Queries) UpsertInvertedIndex(ctx context.Context, arg UpsertInvertedIndexParams) (InvertedIndex, error) {
-	row := q.db.QueryRow(ctx, upsertInvertedIndex, arg.Word, arg.DocumentBits)
-	var i InvertedIndex
-	err := row.Scan(&i.Word, &i.DocumentBits)
-	return i, err
-}
-
-const upsertMetadata = `-- name: UpsertMetadata :one
-INSERT INTO metadata (url_id, title, meta_title, meta_description, meta_robots)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (url_id) DO UPDATE SET
-    title = EXCLUDED.title,
-    meta_title = EXCLUDED.meta_title,
-    meta_description = EXCLUDED.meta_description,
-    meta_robots = EXCLUDED.meta_robots
-RETURNING url_id, title, meta_title, meta_description, meta_robots
-`
-
-type UpsertMetadataParams struct {
-	UrlID           int64
-	Title           pgtype.Text
-	MetaTitle       pgtype.Text
-	MetaDescription pgtype.Text
-	MetaRobots      pgtype.Text
-}
-
-func (q *Queries) UpsertMetadata(ctx context.Context, arg UpsertMetadataParams) (Metadata, error) {
-	row := q.db.QueryRow(ctx, upsertMetadata,
-		arg.UrlID,
-		arg.Title,
-		arg.MetaTitle,
-		arg.MetaDescription,
-		arg.MetaRobots,
-	)
-	var i Metadata
-	err := row.Scan(
-		&i.UrlID,
-		&i.Title,
-		&i.MetaTitle,
-		&i.MetaDescription,
-		&i.MetaRobots,
-	)
-	return i, err
-}
-
-const upsertWordData = `-- name: UpsertWordData :one
-INSERT INTO word_data (word, url_id, position_bits, term_frequency)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (word, url_id) DO UPDATE SET
-    position_bits = EXCLUDED.position_bits,
-    term_frequency = EXCLUDED.term_frequency
-RETURNING word, url_id, position_bits, term_frequency
-`
-
-type UpsertWordDataParams struct {
-	Word          string
-	UrlID         int64
-	PositionBits  []byte
-	TermFrequency int32
-}
-
-func (q *Queries) UpsertWordData(ctx context.Context, arg UpsertWordDataParams) (WordDatum, error) {
-	row := q.db.QueryRow(ctx, upsertWordData,
-		arg.Word,
-		arg.UrlID,
-		arg.PositionBits,
-		arg.TermFrequency,
-	)
-	var i WordDatum
-	err := row.Scan(
-		&i.Word,
-		&i.UrlID,
-		&i.PositionBits,
-		&i.TermFrequency,
-	)
-	return i, err
+	return err
 }
