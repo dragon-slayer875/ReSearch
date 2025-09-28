@@ -17,6 +17,20 @@ import (
 	"github.com/joho/godotenv"
 )
 
+type HeaderRoundTripper struct {
+	rt      http.RoundTripper
+	headers map[string]string
+}
+
+func (h *HeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	for key, value := range h.headers {
+		if req.Header.Get(key) == "" {
+			req.Header.Set(key, value)
+		}
+	}
+	return h.rt.RoundTrip(req)
+}
+
 func main() {
 	seedPath := flag.String("seed", "", "Path to seed URLs file")
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
@@ -47,11 +61,20 @@ func main() {
 		logger.Fatalf("Failed to connect to PostgreSQL: %v", err)
 	}
 
+	transport := &http.Transport{
+		MaxIdleConns:    cfg.Crawler.MaxIdleConns,
+		MaxConnsPerHost: cfg.Crawler.MaxConnsPerHost,
+		IdleConnTimeout: time.Duration(cfg.Crawler.IdleConnTimeout) * time.Second,
+	}
+
+	headers := map[string]string{
+		"User-Agent": cfg.Crawler.UserAgent,
+	}
+
 	httpClient := &http.Client{
-		Transport: &http.Transport{
-			MaxIdleConns:    cfg.Crawler.MaxIdleConns,
-			MaxConnsPerHost: cfg.Crawler.MaxConnsPerHost,
-			IdleConnTimeout: time.Duration(cfg.Crawler.IdleConnTimeout) * time.Second,
+		Transport: &HeaderRoundTripper{
+			rt:      transport,
+			headers: headers,
 		},
 	}
 
