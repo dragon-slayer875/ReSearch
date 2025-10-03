@@ -46,9 +46,11 @@ func validateUrl(parentUrl, dirtyUrl string) (string, error) {
 func isUrlOfAllowedResourceType(urlString string) (bool, error) {
 	commonWebAndImgExtensions := []string{
 		".html", ".htm", ".php", ".asp", ".aspx", ".jsp",
-		".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp",
-		".bmp", ".tiff", ".ico", ".txt",
+		".txt",
 	}
+
+	// 	".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp",
+	// ".bmp", ".tiff", ".ico",
 
 	for _, ext := range commonWebAndImgExtensions {
 		if strings.HasSuffix(urlString, ext) {
@@ -68,11 +70,11 @@ func isUrlOfAllowedResourceType(urlString string) (bool, error) {
 		"text/html",
 		"text/plain",
 		"application/xhtml+xml",
-		"image/jpeg",
-		"image/png",
-		"image/gif",
-		"image/webp",
-		"image/svg+xml",
+		//"image/jpeg",
+		//"image/png",
+		//"image/gif",
+		//"image/webp",
+		//"image/svg+xml",
 	}
 
 	for _, validType := range validTypes {
