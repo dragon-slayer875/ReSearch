@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/redis/go-redis/v9"
@@ -13,7 +14,7 @@ import (
 )
 
 var (
-	notEnglishPage = fmt.Errorf("not an English page")
+	errNotEnglishPage = fmt.Errorf("not an English page")
 )
 
 func (crawler *Crawler) ProcessURL(urlString string) (*[]string, []byte, error) {
@@ -24,7 +25,7 @@ func (crawler *Crawler) ProcessURL(urlString string) (*[]string, []byte, error) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("failed to fetch URL %s: %s", urlString, resp.Status)
+		return nil, nil, fmt.Errorf("HTTP error: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)
@@ -62,7 +63,7 @@ func (crawler *Crawler) extractURLsFromHTML(baseURL string, htmlBytes []byte) (*
 					if attr.Key == "lang" {
 						lang := strings.ToLower(attr.Val)
 						if lang != "en" && !strings.HasPrefix(lang, "en-") {
-							return nil, notEnglishPage // Non-English page, skip processing
+							return nil, errNotEnglishPage // Non-English page, skip processing
 						}
 					}
 				}
@@ -73,15 +74,23 @@ func (crawler *Crawler) extractURLsFromHTML(baseURL string, htmlBytes []byte) (*
 					if attr.Key == "href" {
 						validatedUrl, err := validateUrl(baseURL, attr.Val)
 						if err != nil {
+							crawler.logger.Println("Url validation error:", err)
 							continue
 						}
 
 						isAllowed, err := isUrlOfAllowedResourceType(validatedUrl)
 						if err != nil || !isAllowed {
+							crawler.logger.Println("Url validation error:", err)
 							continue
 						}
 
-						candidateUrls = append(candidateUrls, validatedUrl)
+						normalizedURL, err := normalizeURL(validatedUrl)
+						if err != nil {
+							crawler.logger.Println("Url normalization error:", err)
+							continue
+						}
+
+						candidateUrls = append(candidateUrls, normalizedURL)
 						break
 					}
 				}
@@ -121,4 +130,29 @@ func (crawler *Crawler) filterUnseenURLs(candidateUrls *[]string) (*[]string, er
 	}
 
 	return &discoveredUrls, nil
+}
+
+func normalizeURL(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+
+	if err != nil {
+		return "", fmt.Errorf("could not parse raw URL [%w]", err)
+	}
+
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return "", fmt.Errorf("url has invalid field 'Scheme'")
+	}
+
+	if u.Host == "" {
+		return "", fmt.Errorf("url has no field 'Host'")
+	}
+
+	normalizedURL := u.Scheme + "://" + u.Host
+
+	if u.Path != "" {
+		trimmedPath := strings.TrimSuffix(u.Path, "/")
+		normalizedURL += trimmedPath
+	}
+
+	return normalizedURL, nil
 }

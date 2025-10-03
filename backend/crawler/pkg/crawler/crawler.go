@@ -104,8 +104,13 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 
 	for scanner.Scan() {
 		url := scanner.Text()
-		seedUrls = append(seedUrls, url)
-		pipe.SAdd(crawler.ctx, queue.SeenSet, url)
+		normalizedURL, err := normalizeURL(url)
+		if err != nil {
+			crawler.logger.Println(err)
+			continue
+		}
+		seedUrls = append(seedUrls, normalizedURL)
+		pipe.SAdd(crawler.ctx, queue.SeenSet, normalizedURL)
 	}
 
 	queries := database.New(crawler.dbPool)
@@ -179,7 +184,7 @@ func (crawler *Crawler) worker(workerID int) {
 
 		discoveredUrls, htmlContent, err := crawler.ProcessURL(url)
 		if err != nil {
-			if err == notEnglishPage {
+			if err == errNotEnglishPage {
 				if err := crawler.discardUrl(jobJson); err != nil {
 					crawler.logger.Println("Error discarding URL:", url, "Error:", err)
 				}
