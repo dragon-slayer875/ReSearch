@@ -58,7 +58,7 @@ func (crawler *Crawler) Start() {
 	go func() {
 		defer wg.Done()
 
-		// transfer urls in processing queue which are older than 1 minute to pending queue
+		// transfer urls in processing queue which are older than 30 minute to pending queue
 		for {
 			processingJobs, err := crawler.redisClient.ZRangeByScore(crawler.ctx, queue.ProcessingQueue, &redis.ZRangeBy{
 				Min:    "0",
@@ -243,7 +243,7 @@ func (crawler *Crawler) updateQueuesAndStorage(url, domain, jobJson string, id i
 }
 
 func (crawler *Crawler) getNextJob() (string, error) {
-	result, err := crawler.redisClient.BRPop(crawler.ctx, time.Second*10, queue.PendingQueue).Result()
+	result, err := crawler.redisClient.BRPop(crawler.ctx, time.Second*20, queue.PendingQueue).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return "", fmt.Errorf("no URLs in queue")
@@ -299,7 +299,16 @@ func (crawler *Crawler) queueForIndexing(htmlContent *[]byte, url string, id int
 		return fmt.Errorf("failed to marshal indexing payload: %w", err)
 	}
 
-	return crawler.redisClient.LPush(crawler.ctx, queue.IndexPendingQueue, string(payloadJSON)).Err()
+	pipe := crawler.redisClient.Pipeline()
+	pipe.Set(crawler.ctx, url, payloadJSON, 0)
+	pipe.LPush(crawler.ctx, queue.IndexPendingQueue, url)
+
+	_, err = pipe.Exec(crawler.ctx)
+	if err != nil {
+		return fmt.Errorf("redis pipeline err: %w", err)
+	}
+
+	return nil
 }
 
 func (crawler *Crawler) updateStorage(url, domain string, discoveredUrls *[]string, rulesJson *[]byte, rulesExistInDb bool) (*map[string]int64, error) {
