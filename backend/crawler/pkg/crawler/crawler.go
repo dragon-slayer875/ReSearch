@@ -209,10 +209,6 @@ func (crawler *Crawler) discardUrl(jobJson string) error {
 		return fmt.Errorf("failed to remove URL from processing queue: %w", err)
 	}
 
-	if err := crawler.redisClient.LPush(crawler.ctx, queue.DiscardQueue, jobJson).Err(); err != nil {
-		return fmt.Errorf("failed to add URL to discarded queue: %w", err)
-	}
-
 	crawler.logger.Println("Discarded job:", jobJson)
 	return nil
 }

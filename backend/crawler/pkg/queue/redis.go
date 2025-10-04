@@ -10,7 +10,6 @@ const (
 	PendingQueue      = "crawl:pending"
 	ProcessingQueue   = "crawl:processing"
 	SeenSet           = "crawl:seen"
-	DiscardQueue      = "crawl:discard"
 	IndexPendingQueue = "index:pending"
 )
 
