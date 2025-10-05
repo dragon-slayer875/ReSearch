@@ -1,0 +1,6 @@
+indexer:
+  worker_count: 5
+
+logging:
+  level: "info"
+  format: "json"
