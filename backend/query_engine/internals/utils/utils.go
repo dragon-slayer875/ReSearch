@@ -1,8 +1,10 @@
 package utils
 
 import (
-	snowball "github.com/snowballstem/snowball/go"
 	english "query_engine/internals/snowball"
+	"strings"
+
+	snowball "github.com/snowballstem/snowball/go"
 )
 
 func StemWords(content []string) []string {
@@ -17,4 +19,17 @@ func StemWords(content []string) []string {
 	}
 
 	return stemmedWords
+}
+
+func RemoveStopWords(content []string) []string {
+	var filteredWords []string
+
+	for _, word := range content {
+		word = strings.ToLower(word)
+		if !isStopWord(word) {
+			filteredWords = append(filteredWords, word)
+		}
+	}
+
+	return filteredWords
 }

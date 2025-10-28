@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
 
@@ -20,6 +22,8 @@ func main() {
 	flag.Parse()
 
 	logger := log.New(os.Stdout, "queryEngine: ", log.LstdFlags)
+
+	ctx := context.Background()
 
 	err := godotenv.Load(*envPath)
 	if err != nil {
@@ -31,11 +35,17 @@ func main() {
 		logger.Fatalln("Failed to load config:", err)
 	}
 
+	dbPool, err := pgxpool.New(ctx, os.Getenv("POSTGRES_URL"))
+	if err != nil {
+		logger.Fatalf("Failed to connect to PostgreSQL: %v", err)
+	}
+
+	defer dbPool.Close()
 	app := fiber.New(fiber.Config{
 		UnescapePath: true,
 	})
 
-	QueryEngine := queryEngine.NewQueryEngine(app)
+	QueryEngine := queryEngine.NewQueryEngine(app, logger, dbPool)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
