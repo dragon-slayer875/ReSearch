@@ -45,7 +45,7 @@ func main() {
 		UnescapePath: true,
 	})
 
-	QueryEngine := queryEngine.NewQueryEngine(app, logger, dbPool)
+	QueryEngine := queryEngine.NewQueryEngine(app, logger, dbPool, ctx)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
