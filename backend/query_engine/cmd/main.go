@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"query_engine/internals/config"
+	queryEngine "query_engine/internals/query_engine"
 	"syscall"
 
 	"github.com/gofiber/fiber/v2"
@@ -18,7 +19,7 @@ func main() {
 	envPath := flag.String("env", ".env", "Path to env variables file")
 	flag.Parse()
 
-	logger := log.New(os.Stdout, "query_engine: ", log.LstdFlags)
+	logger := log.New(os.Stdout, "queryEngine: ", log.LstdFlags)
 
 	err := godotenv.Load(*envPath)
 	if err != nil {
@@ -30,7 +31,11 @@ func main() {
 		logger.Fatalln("Failed to load config:", err)
 	}
 
-	app := fiber.New()
+	app := fiber.New(fiber.Config{
+		UnescapePath: true,
+	})
+
+	QueryEngine := queryEngine.NewQueryEngine(app)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
@@ -46,9 +51,8 @@ func main() {
 	}()
 
 	logger.Println("Starting...")
-
-	err = app.Listen(fmt.Sprintf(":%s", cfg.QueryEngine.Port))
+	err = QueryEngine.Start(fmt.Sprintf(":%s", cfg.QueryEngine.Port))
 	if err != nil {
-		logger.Println(err)
+		logger.Fatalln(err)
 	}
 }
