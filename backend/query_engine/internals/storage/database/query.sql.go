@@ -65,6 +65,49 @@ func (q *Queries) GetMetadataByURLID(ctx context.Context, urlID int64) (Metadata
 	return i, err
 }
 
+const getSearchResults = `-- name: GetSearchResults :many
+SELECT u.id, u.url, COUNT(DISTINCT wd.word) as word_match_count, ARRAY_AGG(wd.word) matched_words, SUM(wd.tf_idf)::DOUBLE PRECISION as total_relevance 
+FROM urls u JOIN word_data wd
+ON u.id = wd.url_id
+WHERE wd.word = ANY($1::text[])
+GROUP BY u.id
+ORDER BY word_match_count DESC, total_relevance DESC
+`
+
+type GetSearchResultsRow struct {
+	ID             int64       `json:"id"`
+	Url            string      `json:"url"`
+	WordMatchCount int64       `json:"word_match_count"`
+	MatchedWords   interface{} `json:"matched_words"`
+	TotalRelevance float64     `json:"total_relevance"`
+}
+
+func (q *Queries) GetSearchResults(ctx context.Context, dollar_1 []string) ([]GetSearchResultsRow, error) {
+	rows, err := q.db.Query(ctx, getSearchResults, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetSearchResultsRow
+	for rows.Next() {
+		var i GetSearchResultsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Url,
+			&i.WordMatchCount,
+			&i.MatchedWords,
+			&i.TotalRelevance,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTotalIndexedDocumentCount = `-- name: GetTotalIndexedDocumentCount :one
 SELECT COUNT(DISTINCT url_id) FROM word_data
 `

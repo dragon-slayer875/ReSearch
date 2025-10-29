@@ -20,8 +20,8 @@ type QueryEngine struct {
 
 type QueryEngineImpl interface {
 	Start(port string) error
-	processQuery(query string) string
-	retrieveDocuments(queryStrings []string) string
+	processQuery(query string) []database.GetSearchResultsRow
+	retrieveDocuments(queryStrings []string) ([]database.GetSearchResultsRow, error)
 }
 
 func NewQueryEngine(restServer *fiber.App, logger *log.Logger, dbPool *pgxpool.Pool, ctx context.Context) *QueryEngine {
@@ -35,45 +35,38 @@ func NewQueryEngine(restServer *fiber.App, logger *log.Logger, dbPool *pgxpool.P
 
 func (qe *QueryEngine) Start(port string) error {
 	qe.restServer.Get("/api/:search", func(c *fiber.Ctx) error {
-		return c.SendString(qe.processQuery(c.Params("search")))
+		return c.JSON(qe.processQuery(c.Params("search")))
 	})
 
 	return qe.restServer.Listen(port)
 }
 
-func (qe *QueryEngine) processQuery(query string) string {
+func (qe *QueryEngine) processQuery(query string) []database.GetSearchResultsRow {
 	query_split := strings.Fields(query)
 	filtered_words := utils.RemoveStopWords(query_split)
 	stemmed_query := utils.StemWords(filtered_words)
 
 	documents, err := qe.retrieveDocuments(stemmed_query)
-	resString := ""
 
 	if err != nil {
 		qe.logger.Println(err)
-		return ""
+		return nil
 	}
 
-	for key, val := range documents {
-		resString += " " + key
-		qe.logger.Println(val)
+	if len(documents) == 0 {
+		return nil
 	}
 
-	return resString
+	for _, result := range documents {
+		qe.logger.Println(result)
+	}
+
+	return documents
 }
 
-func (qe *QueryEngine) retrieveDocuments(queryStrings []string) (map[string]database.BatchGetInvertedIndexByWordRow, error) {
+func (qe *QueryEngine) retrieveDocuments(queryStrings []string) ([]database.GetSearchResultsRow, error) {
 	queries := database.New(qe.dbPool)
-	documents := make(map[string]database.BatchGetInvertedIndexByWordRow)
-	var getErr error
-	query_results := queries.BatchGetInvertedIndexByWord(qe.ctx, queryStrings)
-	query_results.QueryRow(func(i int, ii database.BatchGetInvertedIndexByWordRow, err error) {
-		if err != nil {
-			getErr = err
-			return
-		}
-		documents[ii.Word] = ii
-	})
+	query_results, err := queries.GetSearchResults(qe.ctx, queryStrings)
 
-	return documents, getErr
+	return query_results, err
 }

@@ -30,6 +30,14 @@ SELECT *
 FROM word_data
 WHERE word = $1;
 
+-- name: GetSearchResults :many
+SELECT u.id, u.url, COUNT(DISTINCT wd.word) as word_match_count, ARRAY_AGG(wd.word) matched_words, SUM(wd.tf_idf)::DOUBLE PRECISION as total_relevance 
+FROM urls u JOIN word_data wd
+ON u.id = wd.url_id
+WHERE wd.word = ANY($1::text[])
+GROUP BY u.id
+ORDER BY word_match_count DESC, total_relevance DESC;
+
 -- Additional utility queries
 -- name: GetTotalIndexedDocumentCount :one
 SELECT COUNT(DISTINCT url_id) FROM word_data;
