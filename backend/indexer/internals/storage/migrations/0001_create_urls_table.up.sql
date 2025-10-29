@@ -11,16 +11,14 @@ CREATE TABLE robot_rules (
     fetched_at TIMESTAMP NOT NULL
 );
 
-CREATE TABLE metadata (
+CREATE TABLE url_data (
     url_id BIGSERIAL PRIMARY KEY,
-    title TEXT,
-    meta_title TEXT,
-    meta_description TEXT,
-    meta_robots TEXT,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+	raw_content TEXT NOT NULL,
 
-    CONSTRAINT fk_metadata_url FOREIGN KEY (url_id) REFERENCES urls(id) ON DELETE CASCADE
+    CONSTRAINT fk_url_data_id FOREIGN KEY (url_id) REFERENCES urls(id) ON DELETE CASCADE
 );
-CREATE INDEX idx_metadata_url_id ON metadata(url_id);
 
 CREATE TABLE inverted_index (
     word TEXT PRIMARY KEY,

@@ -17,6 +17,13 @@ type BatchInsertInvertedIndexWithoutResultParams struct {
 	DocFrequency int64  `json:"doc_frequency"`
 }
 
+type BatchInsertUrlDataParams struct {
+	UrlID       int64  `json:"url_id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	RawContent  string `json:"raw_content"`
+}
+
 type BatchInsertWordDataParams struct {
 	Word          string `json:"word"`
 	UrlID         int64  `json:"url_id"`
@@ -59,25 +66,6 @@ func (q *Queries) GetInvertedIndexByWords(ctx context.Context, dollar_1 []string
 		return nil, err
 	}
 	return items, nil
-}
-
-const getMetadataByURLID = `-- name: GetMetadataByURLID :one
-SELECT url_id, title, meta_title, meta_description, meta_robots
-FROM metadata
-WHERE url_id = $1
-`
-
-func (q *Queries) GetMetadataByURLID(ctx context.Context, urlID int64) (Metadata, error) {
-	row := q.db.QueryRow(ctx, getMetadataByURLID, urlID)
-	var i Metadata
-	err := row.Scan(
-		&i.UrlID,
-		&i.Title,
-		&i.MetaTitle,
-		&i.MetaDescription,
-		&i.MetaRobots,
-	)
-	return i, err
 }
 
 const getTotalIndexedDocumentCount = `-- name: GetTotalIndexedDocumentCount :one
@@ -225,26 +213,25 @@ func (q *Queries) InsertInvertedIndex(ctx context.Context, arg InsertInvertedInd
 	return i, err
 }
 
-const insertMetadata = `-- name: InsertMetadata :exec
-INSERT INTO metadata (url_id, title, meta_title, meta_description, meta_robots)
-VALUES ($1, $2, $3, $4, $5)
+const insertUrlData = `-- name: InsertUrlData :exec
+INSERT INTO url_data (url_id, title, description, raw_content)
+VALUES ($1, $2, $3, $4)
 `
 
-type InsertMetadataParams struct {
-	UrlID           int64       `json:"url_id"`
-	Title           pgtype.Text `json:"title"`
-	MetaTitle       pgtype.Text `json:"meta_title"`
-	MetaDescription pgtype.Text `json:"meta_description"`
-	MetaRobots      pgtype.Text `json:"meta_robots"`
+type InsertUrlDataParams struct {
+	UrlID       int64  `json:"url_id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	RawContent  string `json:"raw_content"`
 }
 
-func (q *Queries) InsertMetadata(ctx context.Context, arg InsertMetadataParams) error {
-	_, err := q.db.Exec(ctx, insertMetadata,
+// Url Data Queries
+func (q *Queries) InsertUrlData(ctx context.Context, arg InsertUrlDataParams) error {
+	_, err := q.db.Exec(ctx, insertUrlData,
 		arg.UrlID,
 		arg.Title,
-		arg.MetaTitle,
-		arg.MetaDescription,
-		arg.MetaRobots,
+		arg.Description,
+		arg.RawContent,
 	)
 	return err
 }
@@ -268,31 +255,6 @@ func (q *Queries) InsertWordData(ctx context.Context, arg InsertWordDataParams) 
 		arg.UrlID,
 		arg.PositionBits,
 		arg.TermFrequency,
-	)
-	return err
-}
-
-const updateMetadata = `-- name: UpdateMetadata :exec
-UPDATE metadata 
-SET title = $2, meta_title = $3, meta_description = $4, meta_robots = $5
-WHERE url_id = $1
-`
-
-type UpdateMetadataParams struct {
-	UrlID           int64       `json:"url_id"`
-	Title           pgtype.Text `json:"title"`
-	MetaTitle       pgtype.Text `json:"meta_title"`
-	MetaDescription pgtype.Text `json:"meta_description"`
-	MetaRobots      pgtype.Text `json:"meta_robots"`
-}
-
-func (q *Queries) UpdateMetadata(ctx context.Context, arg UpdateMetadataParams) error {
-	_, err := q.db.Exec(ctx, updateMetadata,
-		arg.UrlID,
-		arg.Title,
-		arg.MetaTitle,
-		arg.MetaDescription,
-		arg.MetaRobots,
 	)
 	return err
 }

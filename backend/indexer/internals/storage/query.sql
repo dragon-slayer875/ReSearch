@@ -1,17 +1,3 @@
--- name: InsertMetadata :exec
-INSERT INTO metadata (url_id, title, meta_title, meta_description, meta_robots)
-VALUES ($1, $2, $3, $4, $5);
-
--- name: UpdateMetadata :exec
-UPDATE metadata 
-SET title = $2, meta_title = $3, meta_description = $4, meta_robots = $5
-WHERE url_id = $1;
-
--- name: GetMetadataByURLID :one
-SELECT *
-FROM metadata
-WHERE url_id = $1;
-
 -- Inverted Index Queries
 -- name: InsertInvertedIndex :one
 INSERT INTO inverted_index (word, document_bits, doc_frequency)
@@ -39,6 +25,11 @@ WHERE word = $1;
 SELECT * 
 FROM inverted_index
 WHERE word = ANY($1::text[]);
+
+-- Url Data Queries
+-- name: InsertUrlData :exec
+INSERT INTO url_data (url_id, title, description, raw_content)
+VALUES ($1, $2, $3, $4);
 
 -- Word Data Queries
 -- name: InsertWordData :exec
@@ -85,6 +76,10 @@ VALUES ($1, $2, $3);
 
 -- name: BatchInsertWordData :copyfrom
 INSERT INTO word_data (word, url_id, position_bits, term_frequency)
+VALUES ($1, $2, $3, $4);
+
+-- name: BatchInsertUrlData :copyfrom
+INSERT INTO url_data (url_id, title, description, raw_content)
 VALUES ($1, $2, $3, $4);
 
 -- Additional utility queries
