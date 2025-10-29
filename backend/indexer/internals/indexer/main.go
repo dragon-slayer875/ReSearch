@@ -112,19 +112,19 @@ func (i *Indexer) worker() {
 
 		i.logger.Printf("Processing job: %d\n", job.JobId)
 
-		cleanedTextContent, err := i.getCleanTextContent(job)
+		processedJob, err := i.processJob(job)
 		if err != nil {
 			i.logger.Printf("Error processing job %s: %v\n", job.Url, err)
 			continue
 		}
 
-		postingsList, err := i.createPostingsList(cleanedTextContent, job.JobId)
+		postingsList, err := i.createPostingsList(processedJob.cleanTextContent, job.JobId)
 		if err != nil {
 			i.logger.Printf("Error creating postings list for job %s: %v\n", job.Url, err)
 			continue
 		}
 
-		if err := i.updateQueues(postingsList, job.Url); err != nil {
+		if err := i.updateQueues(postingsList, job.Url, job.JobId, processedJob); err != nil {
 			i.logger.Printf("Error updating queues for job %s: %v\n", job.Url, err)
 			continue
 		}
@@ -166,8 +166,19 @@ func (i *Indexer) getNextJob() (string, error) {
 	return jobDetailsStr, nil
 }
 
-func (i *Indexer) updateQueues(postingsList *map[string]*Posting, jobUrl string) error {
+func (i *Indexer) updateQueues(postingsList *map[string]*Posting, jobUrl string, jobId int64, processedJob *processedJob) error {
 	pipe := i.redisClient.Pipeline()
+
+	queries := database.New(i.dbPool)
+	err := queries.InsertUrlData(i.ctx, database.InsertUrlDataParams{
+		UrlID:       jobId,
+		Title:       processedJob.title,
+		Description: processedJob.description,
+		RawContent:  processedJob.rawTextContent})
+
+	if err != nil {
+		return fmt.Errorf("failed to queue updates: %w", err)
+	}
 
 	for word, posting := range *postingsList {
 		positionsBytes, err := posting.Positions.ToBytes()
@@ -189,7 +200,7 @@ func (i *Indexer) updateQueues(postingsList *map[string]*Posting, jobUrl string)
 
 	pipe.ZRem(i.ctx, queue.ProcessingQueue, jobUrl)
 
-	_, err := pipe.Exec(i.ctx)
+	_, err = pipe.Exec(i.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to queue updates: %w", err)
 	}

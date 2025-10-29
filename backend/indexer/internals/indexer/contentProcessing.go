@@ -2,31 +2,69 @@ package indexer
 
 import (
 	"bytes"
-	"github.com/RoaringBitmap/roaring/v2/roaring64"
-	snowball "github.com/snowballstem/snowball/go"
-	"golang.org/x/net/html"
 	"indexer/internals/queue"
 	english "indexer/internals/snowball"
 	"strings"
+	"unicode"
+
+	"github.com/RoaringBitmap/roaring/v2/roaring64"
+	snowball "github.com/snowballstem/snowball/go"
+	"golang.org/x/net/html"
 )
 
-func (i *Indexer) getCleanTextContent(job *queue.IndexJob) ([]string, error) {
+type processedJob struct {
+	rawTextContent   string
+	cleanTextContent []string
+	title            string
+	description      string
+}
+
+func (i *Indexer) processJob(job *queue.IndexJob) (*processedJob, error) {
 	tokenizer := html.NewTokenizer(bytes.NewBufferString(job.HtmlContent))
 	var textContent string
+	result := processedJob{}
 
 	for {
 		tokenType := tokenizer.Next()
 
 		switch tokenType {
 		case html.ErrorToken:
-			cleanedTextContent := i.removeStopWords(strings.Fields(textContent))
+			result.rawTextContent = textContent
+			cleanedTextContent := i.removeStopWords(strings.FieldsFunc(textContent, func(r rune) bool {
+				// Split on punctuation except apostrophes, or whitespace
+				if unicode.IsSpace(r) {
+					return true
+				}
+				if unicode.IsPunct(r) && r != '\'' {
+					return true
+				}
+				return false
+			}))
 			stemmedTextContent := i.stemWords(cleanedTextContent)
-			return stemmedTextContent, nil // End of the document
+			result.cleanTextContent = stemmedTextContent
+			return &result, tokenizer.Err() // if err is io.eof then indicates End of the document
 		case html.StartTagToken, html.SelfClosingTagToken:
 			token := tokenizer.Token()
 			switch token.Data {
 			case "script", "noscript", "style":
 				tokenizer.Next() // Skip the content of non text tags
+			case "title":
+				tokenizer.Next()
+				result.title = string(tokenizer.Text())
+			case "meta":
+				key := ""
+				for _, attr := range token.Attr {
+					switch attr.Key {
+					case "name":
+						if attr.Val == "description" {
+							key = "d"
+						}
+					case "content":
+						if key == "d" {
+							result.description = attr.Val
+						}
+					}
+				}
 			}
 		case html.TextToken:
 			token := tokenizer.Token()
@@ -41,7 +79,7 @@ func (i *Indexer) removeStopWords(content []string) []string {
 
 	for _, word := range content {
 		word = strings.ToLower(word)
-		if _, exists := stopWords[word]; !exists {
+		if !isStopWord(word) {
 			filteredWords = append(filteredWords, word)
 		}
 	}
