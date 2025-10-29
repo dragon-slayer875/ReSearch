@@ -14,14 +14,6 @@ type InvertedIndex struct {
 	DocFrequency int64  `json:"doc_frequency"`
 }
 
-type Metadata struct {
-	UrlID           int64       `json:"url_id"`
-	Title           pgtype.Text `json:"title"`
-	MetaTitle       pgtype.Text `json:"meta_title"`
-	MetaDescription pgtype.Text `json:"meta_description"`
-	MetaRobots      pgtype.Text `json:"meta_robots"`
-}
-
 type RobotRule struct {
 	Domain    string           `json:"domain"`
 	RulesJson []byte           `json:"rules_json"`
@@ -32,6 +24,13 @@ type Url struct {
 	ID        int64            `json:"id"`
 	Url       string           `json:"url"`
 	FetchedAt pgtype.Timestamp `json:"fetched_at"`
+}
+
+type UrlDatum struct {
+	UrlID       int64  `json:"url_id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	RawContent  string `json:"raw_content"`
 }
 
 type WordDatum struct {

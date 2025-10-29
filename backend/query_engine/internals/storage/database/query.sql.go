@@ -46,25 +46,6 @@ func (q *Queries) GetInvertedIndexByWords(ctx context.Context, dollar_1 []string
 	return items, nil
 }
 
-const getMetadataByURLID = `-- name: GetMetadataByURLID :one
-SELECT url_id, title, meta_title, meta_description, meta_robots
-FROM metadata
-WHERE url_id = $1
-`
-
-func (q *Queries) GetMetadataByURLID(ctx context.Context, urlID int64) (Metadata, error) {
-	row := q.db.QueryRow(ctx, getMetadataByURLID, urlID)
-	var i Metadata
-	err := row.Scan(
-		&i.UrlID,
-		&i.Title,
-		&i.MetaTitle,
-		&i.MetaDescription,
-		&i.MetaRobots,
-	)
-	return i, err
-}
-
 const getSearchResults = `-- name: GetSearchResults :many
 SELECT u.id, u.url, COUNT(DISTINCT wd.word) as word_match_count, ARRAY_AGG(wd.word) matched_words, SUM(wd.tf_idf)::DOUBLE PRECISION as total_relevance 
 FROM urls u JOIN word_data wd

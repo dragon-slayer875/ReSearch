@@ -1,8 +1,3 @@
--- name: GetMetadataByURLID :one
-SELECT *
-FROM metadata
-WHERE url_id = $1;
-
 -- Inverted Index Queries
 -- name: BatchGetInvertedIndexByWord :batchone
 SELECT word, document_bits
