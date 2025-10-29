@@ -14,14 +14,6 @@ type InvertedIndex struct {
 	DocFrequency int64
 }
 
-type Metadata struct {
-	UrlID           int64
-	Title           pgtype.Text
-	MetaTitle       pgtype.Text
-	MetaDescription pgtype.Text
-	MetaRobots      pgtype.Text
-}
-
 type RobotRule struct {
 	Domain    string
 	RulesJson []byte
@@ -32,6 +24,13 @@ type Url struct {
 	ID        int64
 	Url       string
 	FetchedAt pgtype.Timestamp
+}
+
+type UrlDatum struct {
+	UrlID       int64
+	Title       string
+	Description string
+	RawContent  string
 }
 
 type WordDatum struct {
