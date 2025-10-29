@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"indexer/internals/queue"
 	"indexer/internals/storage/database"
+	"io"
 	"log"
 	"math"
 	"strconv"
@@ -113,7 +114,7 @@ func (i *Indexer) worker() {
 		i.logger.Printf("Processing job: %d\n", job.JobId)
 
 		processedJob, err := i.processJob(job)
-		if err != nil {
+		if err != nil && err != io.EOF {
 			i.logger.Printf("Error processing job %s: %v\n", job.Url, err)
 			continue
 		}
