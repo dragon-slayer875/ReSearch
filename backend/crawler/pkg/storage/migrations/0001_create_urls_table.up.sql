@@ -1,14 +1,23 @@
 CREATE TABLE urls (
     id BIGSERIAL PRIMARY KEY,
     url TEXT NOT NULL UNIQUE,
-    fetched_at TIMESTAMP
+	page_rank DOUBLE PRECISION,
+    fetched_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 CREATE INDEX idx_urls_url ON urls(url);
 
 CREATE TABLE robot_rules (
     domain TEXT PRIMARY KEY,
     rules_json JSONB NOT NULL,
-    fetched_at TIMESTAMP NOT NULL
+    fetched_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE links (
+	"from" TEXT NOT NULL,
+	"to" TEXT NOT NULL,
+
+    CONSTRAINT pk_links PRIMARY KEY ("from", "to"),
+    CONSTRAINT fk_links FOREIGN KEY ("from") REFERENCES urls(url) ON DELETE CASCADE
 );
 
 CREATE TABLE url_data (

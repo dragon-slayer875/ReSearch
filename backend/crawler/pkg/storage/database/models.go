@@ -14,6 +14,11 @@ type InvertedIndex struct {
 	DocFrequency int64
 }
 
+type Link struct {
+	From string
+	To   string
+}
+
 type RobotRule struct {
 	Domain    string
 	RulesJson []byte
@@ -23,6 +28,7 @@ type RobotRule struct {
 type Url struct {
 	ID        int64
 	Url       string
+	PageRank  pgtype.Float8
 	FetchedAt pgtype.Timestamp
 }
 

@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"fmt"
-	"net/http"
 	"net/url"
 	"strings"
 )
@@ -54,31 +53,6 @@ func isUrlOfAllowedResourceType(urlString string) (bool, error) {
 
 	for _, ext := range commonWebAndImgExtensions {
 		if strings.HasSuffix(urlString, ext) {
-			return true, nil
-		}
-	}
-
-	// If the URL does not match any of the common web or image extensions, request header to check content type
-	resp, err := http.Head(urlString)
-	if err != nil {
-		return false, fmt.Errorf("failed to check URL %s: %w", urlString, err)
-	}
-	defer resp.Body.Close()
-
-	contentType := resp.Header.Get("Content-Type")
-	validTypes := []string{
-		"text/html",
-		"text/plain",
-		"application/xhtml+xml",
-		//"image/jpeg",
-		//"image/png",
-		//"image/gif",
-		//"image/webp",
-		//"image/svg+xml",
-	}
-
-	for _, validType := range validTypes {
-		if strings.HasPrefix(contentType, validType) {
 			return true, nil
 		}
 	}

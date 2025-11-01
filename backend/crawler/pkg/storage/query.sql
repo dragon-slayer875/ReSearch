@@ -2,22 +2,13 @@
 SELECT * FROM urls
 WHERE url = $1 LIMIT 1;
 
--- name: CreateUrls :copyfrom
-INSERT INTO urls (
-  id, url, fetched_at
-) VALUES (
-  $1, $2, $3
-);
-
--- name: BatchInsertUrls :many
-INSERT INTO urls (url, fetched_at)
-SELECT unnest($1::text[]), unnest($2::timestamp[])
+-- name: InsertUrl :one
+INSERT INTO urls (url) VALUES (
+  $1
+) ON CONFLICT (url)
+DO UPDATE SET
+	fetched_at = NOW()
 RETURNING id;
-    
--- name: UpdateUrlStatus :exec
-UPDATE urls
-  SET fetched_at = $2
-WHERE url = $1;
 
 -- name: DeleteUrl :exec
 DELETE FROM urls
@@ -25,9 +16,9 @@ WHERE url = $1;
 
 -- name: CreateRobotRules :exec
 INSERT INTO robot_rules (
-  domain, rules_json, fetched_at
+  domain, rules_json
 ) VALUES (
-  $1, $2, $3
+  $1, $2
 );
 
 -- name: GetRobotRules :one
@@ -38,3 +29,11 @@ WHERE domain = $1;
 UPDATE robot_rules
   SET rules_json = $2, fetched_at = $3
 WHERE domain = $1;
+
+-- name: BatchInsertLinks :batchexec
+INSERT INTO links (
+  "from", "to"
+) VALUES (
+  $1, $2
+) ON CONFLICT ("from", "to")
+DO NOTHING;

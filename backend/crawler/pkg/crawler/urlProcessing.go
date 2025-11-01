@@ -3,21 +3,24 @@ package crawler
 import (
 	"bytes"
 	"crawler/pkg/queue"
+	"crawler/pkg/storage/database"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/html"
 )
 
 var (
-	errNotEnglishPage = fmt.Errorf("not an English page")
+	errNotEnglishPage   = fmt.Errorf("not an English page")
+	errNotValidResource = fmt.Errorf("not a valid web page")
 )
 
-func (crawler *Crawler) ProcessURL(urlString string) (*[]string, []byte, error) {
+func (crawler *Crawler) ProcessURL(urlString string) (*[]database.BatchInsertLinksParams, []byte, error) {
+	allowedResourceType := false
+
 	resp, err := crawler.httpClient.Get(urlString)
 	if err != nil {
 		return nil, nil, err
@@ -28,33 +31,60 @@ func (crawler *Crawler) ProcessURL(urlString string) (*[]string, []byte, error) 
 		return nil, nil, fmt.Errorf("HTTP error: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	contentType := resp.Header.Get("Content-Type")
+	validTypes := []string{
+		"text/html",
+		"text/plain",
+		"application/xhtml+xml",
+		//"image/jpeg",
+		//"image/png",
+		//"image/gif",
+		//"image/webp",
+		//"image/svg+xml",
+	}
+
+	for _, validType := range validTypes {
+		if strings.HasPrefix(contentType, validType) {
+			allowedResourceType = true
+		}
+	}
+
+	if !allowedResourceType {
+		return nil, nil, errNotValidResource
+	}
+
+	htmlBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	candidateUrls, err := crawler.extractURLsFromHTML(urlString, bodyBytes)
-	if err != nil {
+	links, err := crawler.discoverAndQueueUrls(urlString, htmlBytes)
+	if err != nil && err != io.EOF {
 		return nil, nil, err
 	}
 
-	discoveredUrls, err := crawler.filterUnseenURLs(candidateUrls)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to filter unseen URLs: %w", err)
-	}
-
-	return discoveredUrls, bodyBytes, nil
+	return links, htmlBytes, nil
 }
 
-func (crawler *Crawler) extractURLsFromHTML(baseURL string, htmlBytes []byte) (*[]string, error) {
-	var candidateUrls []string
+func (crawler *Crawler) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[]database.BatchInsertLinksParams, error) {
+	uniqueUrls := make(map[string]struct{})
+	outlinks := make([]database.BatchInsertLinksParams, 0)
+	pipe := crawler.redisClient.Pipeline()
 	tokenizer := html.NewTokenizer(bytes.NewReader(htmlBytes))
 
 	for {
 		tokenType := tokenizer.Next()
 		switch tokenType {
 		case html.ErrorToken:
-			return &candidateUrls, nil // EOF
+			if err := tokenizer.Err(); err != io.EOF {
+				return nil, err
+			}
+
+			if _, err := pipe.Exec(crawler.ctx); err != nil {
+				return nil, err
+			}
+
+			return &outlinks, tokenizer.Err()
 		case html.StartTagToken, html.SelfClosingTagToken:
 			token := tokenizer.Token()
 
@@ -80,7 +110,9 @@ func (crawler *Crawler) extractURLsFromHTML(baseURL string, htmlBytes []byte) (*
 
 						isAllowed, err := isUrlOfAllowedResourceType(validatedUrl)
 						if err != nil || !isAllowed {
-							crawler.logger.Println("Url validation error:", err)
+							if err != nil {
+								crawler.logger.Println("Url validation error:", err)
+							}
 							continue
 						}
 
@@ -90,46 +122,23 @@ func (crawler *Crawler) extractURLsFromHTML(baseURL string, htmlBytes []byte) (*
 							continue
 						}
 
-						candidateUrls = append(candidateUrls, normalizedURL)
+						if _, exists := uniqueUrls[normalizedURL]; exists || normalizedURL == baseURL {
+							continue
+						}
+
+						uniqueUrls[normalizedURL] = struct{}{}
+						outlinks = append(outlinks, database.BatchInsertLinksParams{
+							From: baseURL,
+							To:   normalizedURL,
+						})
+						pipe.ZIncrBy(crawler.ctx, queue.PendingQueue, 1, normalizedURL)
+
 						break
 					}
 				}
 			}
 		}
 	}
-}
-
-func (crawler *Crawler) filterUnseenURLs(candidateUrls *[]string) (*[]string, error) {
-	if len(*candidateUrls) == 0 {
-		return &[]string{}, nil
-	}
-
-	pipe := crawler.redisClient.Pipeline()
-
-	saddCmds := make([]*redis.IntCmd, len(*candidateUrls))
-	for i, url := range *candidateUrls {
-		saddCmds[i] = pipe.SAdd(crawler.ctx, queue.SeenSet, url)
-	}
-
-	_, err := pipe.Exec(crawler.ctx)
-	if err != nil {
-		return nil, fmt.Errorf("redis pipeline failed: %w", err)
-	}
-
-	// Collect URLs that were newly added (return value 1 means new)
-	discoveredUrls := make([]string, 0, len(*candidateUrls))
-	for i, cmd := range saddCmds {
-		added, err := cmd.Result()
-		if err != nil {
-			crawler.logger.Printf("Failed to check URL %s: %v", (*candidateUrls)[i], err)
-			continue
-		}
-		if added == 1 { // New URL
-			discoveredUrls = append(discoveredUrls, (*candidateUrls)[i])
-		}
-	}
-
-	return &discoveredUrls, nil
 }
 
 func normalizeURL(rawURL string) (string, error) {

@@ -11,60 +11,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const batchInsertUrls = `-- name: BatchInsertUrls :many
-INSERT INTO urls (url, fetched_at)
-SELECT unnest($1::text[]), unnest($2::timestamp[])
-RETURNING id
-`
-
-type BatchInsertUrlsParams struct {
-	Column1 []string
-	Column2 []pgtype.Timestamp
-}
-
-func (q *Queries) BatchInsertUrls(ctx context.Context, arg BatchInsertUrlsParams) ([]int64, error) {
-	rows, err := q.db.Query(ctx, batchInsertUrls, arg.Column1, arg.Column2)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const createRobotRules = `-- name: CreateRobotRules :exec
 INSERT INTO robot_rules (
-  domain, rules_json, fetched_at
+  domain, rules_json
 ) VALUES (
-  $1, $2, $3
+  $1, $2
 )
 `
 
 type CreateRobotRulesParams struct {
 	Domain    string
 	RulesJson []byte
-	FetchedAt pgtype.Timestamp
 }
 
 func (q *Queries) CreateRobotRules(ctx context.Context, arg CreateRobotRulesParams) error {
-	_, err := q.db.Exec(ctx, createRobotRules, arg.Domain, arg.RulesJson, arg.FetchedAt)
+	_, err := q.db.Exec(ctx, createRobotRules, arg.Domain, arg.RulesJson)
 	return err
-}
-
-type CreateUrlsParams struct {
-	ID        int64
-	Url       string
-	FetchedAt pgtype.Timestamp
 }
 
 const deleteUrl = `-- name: DeleteUrl :exec
@@ -90,15 +52,36 @@ func (q *Queries) GetRobotRules(ctx context.Context, domain string) (RobotRule, 
 }
 
 const getUrl = `-- name: GetUrl :one
-SELECT id, url, fetched_at FROM urls
+SELECT id, url, page_rank, fetched_at FROM urls
 WHERE url = $1 LIMIT 1
 `
 
 func (q *Queries) GetUrl(ctx context.Context, url string) (Url, error) {
 	row := q.db.QueryRow(ctx, getUrl, url)
 	var i Url
-	err := row.Scan(&i.ID, &i.Url, &i.FetchedAt)
+	err := row.Scan(
+		&i.ID,
+		&i.Url,
+		&i.PageRank,
+		&i.FetchedAt,
+	)
 	return i, err
+}
+
+const insertUrl = `-- name: InsertUrl :one
+INSERT INTO urls (url) VALUES (
+  $1
+) ON CONFLICT (url)
+DO UPDATE SET
+	fetched_at = NOW()
+RETURNING id
+`
+
+func (q *Queries) InsertUrl(ctx context.Context, url string) (int64, error) {
+	row := q.db.QueryRow(ctx, insertUrl, url)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const updateRobotRules = `-- name: UpdateRobotRules :exec
@@ -115,21 +98,5 @@ type UpdateRobotRulesParams struct {
 
 func (q *Queries) UpdateRobotRules(ctx context.Context, arg UpdateRobotRulesParams) error {
 	_, err := q.db.Exec(ctx, updateRobotRules, arg.Domain, arg.RulesJson, arg.FetchedAt)
-	return err
-}
-
-const updateUrlStatus = `-- name: UpdateUrlStatus :exec
-UPDATE urls
-  SET fetched_at = $2
-WHERE url = $1
-`
-
-type UpdateUrlStatusParams struct {
-	Url       string
-	FetchedAt pgtype.Timestamp
-}
-
-func (q *Queries) UpdateUrlStatus(ctx context.Context, arg UpdateUrlStatusParams) error {
-	_, err := q.db.Exec(ctx, updateUrlStatus, arg.Url, arg.FetchedAt)
 	return err
 }
