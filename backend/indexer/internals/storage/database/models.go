@@ -8,10 +8,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type InvertedIndex struct {
-	Word         string `json:"word"`
-	DocumentBits []byte `json:"document_bits"`
-	DocFrequency int64  `json:"doc_frequency"`
+type Link struct {
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 type RobotRule struct {
@@ -23,6 +22,7 @@ type RobotRule struct {
 type Url struct {
 	ID        int64            `json:"id"`
 	Url       string           `json:"url"`
+	PageRank  pgtype.Float8    `json:"page_rank"`
 	FetchedAt pgtype.Timestamp `json:"fetched_at"`
 }
 

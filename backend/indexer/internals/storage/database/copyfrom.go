@@ -9,76 +9,6 @@ import (
 	"context"
 )
 
-// iteratorForBatchInsertInvertedIndexWithoutResult implements pgx.CopyFromSource.
-type iteratorForBatchInsertInvertedIndexWithoutResult struct {
-	rows                 []BatchInsertInvertedIndexWithoutResultParams
-	skippedFirstNextCall bool
-}
-
-func (r *iteratorForBatchInsertInvertedIndexWithoutResult) Next() bool {
-	if len(r.rows) == 0 {
-		return false
-	}
-	if !r.skippedFirstNextCall {
-		r.skippedFirstNextCall = true
-		return true
-	}
-	r.rows = r.rows[1:]
-	return len(r.rows) > 0
-}
-
-func (r iteratorForBatchInsertInvertedIndexWithoutResult) Values() ([]interface{}, error) {
-	return []interface{}{
-		r.rows[0].Word,
-		r.rows[0].DocumentBits,
-		r.rows[0].DocFrequency,
-	}, nil
-}
-
-func (r iteratorForBatchInsertInvertedIndexWithoutResult) Err() error {
-	return nil
-}
-
-// Batch operations
-func (q *Queries) BatchInsertInvertedIndexWithoutResult(ctx context.Context, arg []BatchInsertInvertedIndexWithoutResultParams) (int64, error) {
-	return q.db.CopyFrom(ctx, []string{"inverted_index"}, []string{"word", "document_bits", "doc_frequency"}, &iteratorForBatchInsertInvertedIndexWithoutResult{rows: arg})
-}
-
-// iteratorForBatchInsertUrlData implements pgx.CopyFromSource.
-type iteratorForBatchInsertUrlData struct {
-	rows                 []BatchInsertUrlDataParams
-	skippedFirstNextCall bool
-}
-
-func (r *iteratorForBatchInsertUrlData) Next() bool {
-	if len(r.rows) == 0 {
-		return false
-	}
-	if !r.skippedFirstNextCall {
-		r.skippedFirstNextCall = true
-		return true
-	}
-	r.rows = r.rows[1:]
-	return len(r.rows) > 0
-}
-
-func (r iteratorForBatchInsertUrlData) Values() ([]interface{}, error) {
-	return []interface{}{
-		r.rows[0].UrlID,
-		r.rows[0].Title,
-		r.rows[0].Description,
-		r.rows[0].RawContent,
-	}, nil
-}
-
-func (r iteratorForBatchInsertUrlData) Err() error {
-	return nil
-}
-
-func (q *Queries) BatchInsertUrlData(ctx context.Context, arg []BatchInsertUrlDataParams) (int64, error) {
-	return q.db.CopyFrom(ctx, []string{"url_data"}, []string{"url_id", "title", "description", "raw_content"}, &iteratorForBatchInsertUrlData{rows: arg})
-}
-
 // iteratorForBatchInsertWordData implements pgx.CopyFromSource.
 type iteratorForBatchInsertWordData struct {
 	rows                 []BatchInsertWordDataParams
@@ -110,6 +40,7 @@ func (r iteratorForBatchInsertWordData) Err() error {
 	return nil
 }
 
+// Batch operations
 func (q *Queries) BatchInsertWordData(ctx context.Context, arg []BatchInsertWordDataParams) (int64, error) {
 	return q.db.CopyFrom(ctx, []string{"word_data"}, []string{"word", "url_id", "position_bits", "term_frequency"}, &iteratorForBatchInsertWordData{rows: arg})
 }

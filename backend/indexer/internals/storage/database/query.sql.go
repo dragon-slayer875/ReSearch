@@ -7,210 +7,13 @@ package database
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
-
-type BatchInsertInvertedIndexWithoutResultParams struct {
-	Word         string `json:"word"`
-	DocumentBits []byte `json:"document_bits"`
-	DocFrequency int64  `json:"doc_frequency"`
-}
-
-type BatchInsertUrlDataParams struct {
-	UrlID       int64  `json:"url_id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	RawContent  string `json:"raw_content"`
-}
 
 type BatchInsertWordDataParams struct {
 	Word          string `json:"word"`
 	UrlID         int64  `json:"url_id"`
 	PositionBits  []byte `json:"position_bits"`
 	TermFrequency int32  `json:"term_frequency"`
-}
-
-const getDocumentWordCount = `-- name: GetDocumentWordCount :one
-SELECT COUNT(*) FROM word_data WHERE url_id = $1
-`
-
-func (q *Queries) GetDocumentWordCount(ctx context.Context, urlID int64) (int64, error) {
-	row := q.db.QueryRow(ctx, getDocumentWordCount, urlID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const getInvertedIndexByWords = `-- name: GetInvertedIndexByWords :many
-SELECT word, document_bits, doc_frequency 
-FROM inverted_index
-WHERE word = ANY($1::text[])
-`
-
-func (q *Queries) GetInvertedIndexByWords(ctx context.Context, dollar_1 []string) ([]InvertedIndex, error) {
-	rows, err := q.db.Query(ctx, getInvertedIndexByWords, dollar_1)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []InvertedIndex
-	for rows.Next() {
-		var i InvertedIndex
-		if err := rows.Scan(&i.Word, &i.DocumentBits, &i.DocFrequency); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getTotalIndexedDocumentCount = `-- name: GetTotalIndexedDocumentCount :one
-SELECT COUNT(DISTINCT url_id) FROM word_data
-`
-
-// Additional utility queries
-func (q *Queries) GetTotalIndexedDocumentCount(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, getTotalIndexedDocumentCount)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const getWordCount = `-- name: GetWordCount :one
-SELECT COUNT(*) FROM inverted_index
-`
-
-func (q *Queries) GetWordCount(ctx context.Context) (int64, error) {
-	row := q.db.QueryRow(ctx, getWordCount)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const getWordDataByURL = `-- name: GetWordDataByURL :many
-SELECT word, url_id, position_bits, term_frequency, idf, tf_idf
-FROM word_data
-WHERE url_id = $1
-`
-
-func (q *Queries) GetWordDataByURL(ctx context.Context, urlID int64) ([]WordDatum, error) {
-	rows, err := q.db.Query(ctx, getWordDataByURL, urlID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []WordDatum
-	for rows.Next() {
-		var i WordDatum
-		if err := rows.Scan(
-			&i.Word,
-			&i.UrlID,
-			&i.PositionBits,
-			&i.TermFrequency,
-			&i.Idf,
-			&i.TfIdf,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getWordDataByWord = `-- name: GetWordDataByWord :many
-SELECT word, url_id, position_bits, term_frequency, idf, tf_idf
-FROM word_data
-WHERE word = $1
-`
-
-func (q *Queries) GetWordDataByWord(ctx context.Context, word string) ([]WordDatum, error) {
-	rows, err := q.db.Query(ctx, getWordDataByWord, word)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []WordDatum
-	for rows.Next() {
-		var i WordDatum
-		if err := rows.Scan(
-			&i.Word,
-			&i.UrlID,
-			&i.PositionBits,
-			&i.TermFrequency,
-			&i.Idf,
-			&i.TfIdf,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getWordDataByWordAndURL = `-- name: GetWordDataByWordAndURL :one
-SELECT word, url_id, position_bits, term_frequency, idf, tf_idf
-FROM word_data
-WHERE word = $1 AND url_id = $2
-`
-
-type GetWordDataByWordAndURLParams struct {
-	Word  string `json:"word"`
-	UrlID int64  `json:"url_id"`
-}
-
-func (q *Queries) GetWordDataByWordAndURL(ctx context.Context, arg GetWordDataByWordAndURLParams) (WordDatum, error) {
-	row := q.db.QueryRow(ctx, getWordDataByWordAndURL, arg.Word, arg.UrlID)
-	var i WordDatum
-	err := row.Scan(
-		&i.Word,
-		&i.UrlID,
-		&i.PositionBits,
-		&i.TermFrequency,
-		&i.Idf,
-		&i.TfIdf,
-	)
-	return i, err
-}
-
-const getWordFrequencySum = `-- name: GetWordFrequencySum :one
-SELECT COALESCE(SUM(term_frequency), 0) FROM word_data WHERE url_id = $1
-`
-
-func (q *Queries) GetWordFrequencySum(ctx context.Context, urlID int64) (interface{}, error) {
-	row := q.db.QueryRow(ctx, getWordFrequencySum, urlID)
-	var coalesce interface{}
-	err := row.Scan(&coalesce)
-	return coalesce, err
-}
-
-const insertInvertedIndex = `-- name: InsertInvertedIndex :one
-INSERT INTO inverted_index (word, document_bits, doc_frequency)
-VALUES ($1, $2, $3)
-RETURNING word, document_bits, doc_frequency
-`
-
-type InsertInvertedIndexParams struct {
-	Word         string `json:"word"`
-	DocumentBits []byte `json:"document_bits"`
-	DocFrequency int64  `json:"doc_frequency"`
-}
-
-// Inverted Index Queries
-func (q *Queries) InsertInvertedIndex(ctx context.Context, arg InsertInvertedIndexParams) (InvertedIndex, error) {
-	row := q.db.QueryRow(ctx, insertInvertedIndex, arg.Word, arg.DocumentBits, arg.DocFrequency)
-	var i InvertedIndex
-	err := row.Scan(&i.Word, &i.DocumentBits, &i.DocFrequency)
-	return i, err
 }
 
 const insertUrlData = `-- name: InsertUrlData :exec
@@ -259,30 +62,27 @@ func (q *Queries) InsertWordData(ctx context.Context, arg InsertWordDataParams) 
 	return err
 }
 
-const updateWordData = `-- name: UpdateWordData :exec
-UPDATE word_data 
-SET position_bits = $3, term_frequency = $4,
-    idf = $5, tf_idf = $6
-WHERE word = $1 AND url_id = $2
+const updateTfIdf = `-- name: UpdateTfIdf :exec
+WITH total_docs AS (
+    SELECT COUNT(DISTINCT url_id)::DOUBLE PRECISION as total 
+    FROM word_data
+),
+word_stats AS (
+    SELECT 
+        word,
+        COUNT(DISTINCT url_id) as doc_count
+    FROM word_data
+    GROUP BY word
+)
+UPDATE word_data wd
+SET 
+    idf = 1 + (ln((SELECT total FROM total_docs) / ws.doc_count::DOUBLE PRECISION)),
+    tf_idf = term_frequency * (1+ ln((SELECT total FROM total_docs) / ws.doc_count::DOUBLE PRECISION))
+FROM word_stats ws
+WHERE wd.word = ws.word
 `
 
-type UpdateWordDataParams struct {
-	Word          string        `json:"word"`
-	UrlID         int64         `json:"url_id"`
-	PositionBits  []byte        `json:"position_bits"`
-	TermFrequency int32         `json:"term_frequency"`
-	Idf           pgtype.Float8 `json:"idf"`
-	TfIdf         pgtype.Float8 `json:"tf_idf"`
-}
-
-func (q *Queries) UpdateWordData(ctx context.Context, arg UpdateWordDataParams) error {
-	_, err := q.db.Exec(ctx, updateWordData,
-		arg.Word,
-		arg.UrlID,
-		arg.PositionBits,
-		arg.TermFrequency,
-		arg.Idf,
-		arg.TfIdf,
-	)
+func (q *Queries) UpdateTfIdf(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, updateTfIdf)
 	return err
 }
