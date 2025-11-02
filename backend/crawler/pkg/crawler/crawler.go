@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-redsync/redsync/v4"
+	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -147,7 +149,7 @@ func (crawler *Crawler) worker(workerID int) {
 			continue
 		}
 
-		robotRules, rulesExistInDb, err := crawler.GetRobotRules(domain, workerID)
+		robotRules, robotRulesStale, err := crawler.GetRobotRules(domain, workerID)
 		if err != nil {
 			crawler.logger.Println("Error getting robot rules for", url, ". Error:", err)
 			if errors.Is(err, rulesLockedError) {
@@ -159,12 +161,18 @@ func (crawler *Crawler) worker(workerID int) {
 			if err = crawler.requeueJobs(job); err != nil {
 				crawler.logger.Println("Error requeuing URL:", url, "Error:", err)
 			}
+			if err = crawler.removeRobotRulesFromCache(domain, robotRulesStale); err != nil {
+				crawler.logger.Println("Error requeuing URL:", url, "Error:", err)
+			}
 			continue
 		}
 
 		if !robotRules.isAllowed(url) {
 			if err := crawler.discardJob(jobJson); err != nil {
 				crawler.logger.Println("Error discarding URL:", url, "Error:", err)
+			}
+			if err = crawler.removeRobotRulesFromCache(domain, robotRulesStale); err != nil {
+				crawler.logger.Println("Error requeuing URL:", url, "Error:", err)
 			}
 			continue
 		}
@@ -180,13 +188,19 @@ func (crawler *Crawler) worker(workerID int) {
 			} else {
 				crawler.logger.Println("Error processing URL:", url, "Error:", err)
 			}
+			if err = crawler.removeRobotRulesFromCache(domain, robotRulesStale); err != nil {
+				crawler.logger.Println("Error requeuing URL:", url, "Error:", err)
+			}
 			continue
 		}
 
 		robotRulesJson, _ := json.Marshal(robotRules)
 
-		if err := crawler.updateQueuesAndStorage(url, domain, jobJson, &htmlContent, links, &robotRulesJson, rulesExistInDb); err != nil {
+		if err := crawler.updateQueuesAndStorage(url, domain, jobJson, &htmlContent, links, &robotRulesJson, robotRulesStale); err != nil {
 			crawler.logger.Println(err)
+			if err = crawler.removeRobotRulesFromCache(domain, robotRulesStale); err != nil {
+				crawler.logger.Println("Error requeuing URL:", url, "Error:", err)
+			}
 			continue
 		}
 
@@ -341,36 +355,25 @@ func (crawler *Crawler) updateStorage(url, domain string, links *[]database.Batc
 func (crawler *Crawler) GetRobotRules(domainString string, workerID int) (*RobotRules, bool, error) {
 	var robotRulesStale bool
 	var accErr RobotRulesError
+	pool := goredis.NewPool(crawler.redisClient)
+	rs := redsync.New(pool)
 
 	cacheKey := "robots:" + domainString
 	lockKey := "robots_lock:" + domainString
 
-	pipe := crawler.redisClient.Pipeline()
-	cacheGet := pipe.Get(crawler.ctx, cacheKey)
-	lockSet := pipe.SetNX(crawler.ctx, lockKey, workerID, robotRulesLockTimeout)
-
-	_, err := pipe.Exec(crawler.ctx)
+	robotRulesJson, err := crawler.redisClient.Get(crawler.ctx, cacheKey).Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
-		accErr.CacheError = fmt.Errorf("redis pipeline: %w", err)
+		accErr.CacheError = fmt.Errorf("cache get error: %w", err)
 	}
 
-	if robotRules := parseFromCache(cacheGet, &accErr); robotRules != nil {
-		crawler.redisClient.Del(crawler.ctx, lockKey)
+	if robotRules := parseFromCache(robotRulesJson, &accErr); robotRules != nil {
 		return robotRules, robotRulesStale, conditionalError(&accErr)
 	}
 
-	lockAcquired, lockErr := lockSet.Result()
-	if lockErr != nil {
-		accErr.LockError = fmt.Errorf("lock acquire: %w", lockErr)
-	} else if !lockAcquired {
-		return nil, false, rulesLockedError
+	mutex := rs.NewMutex(lockKey)
+	if err := mutex.Lock(); err != nil {
+		return nil, false, err
 	}
-
-	defer func() {
-		if err := crawler.redisClient.Del(crawler.ctx, lockKey).Err(); err != nil {
-			accErr.LockError = fmt.Errorf("unlock failed: %w", err)
-		}
-	}()
 
 	robotRules, robotRulesStale := crawler.tryGetFromDB(domainString, &accErr)
 	if robotRules == nil || robotRulesStale {
@@ -382,7 +385,11 @@ func (crawler *Crawler) GetRobotRules(domainString string, workerID int) (*Robot
 
 	crawler.tryCacheRules(domainString, robotRules, &accErr)
 
-	return robotRules, false, conditionalError(&accErr)
+	if ok, err := mutex.Unlock(); !ok || err != nil {
+		return robotRules, false, err
+	}
+
+	return robotRules, robotRulesStale, conditionalError(&accErr)
 }
 
 func (crawler *Crawler) tryGetFromDB(domainString string, accErr *RobotRulesError) (*RobotRules, bool) {
@@ -431,6 +438,15 @@ func (crawler *Crawler) tryCacheRules(domainString string, robotRules *RobotRule
 	}
 }
 
+func (crawler *Crawler) removeRobotRulesFromCache(domain string, robotRulesStale bool) error {
+	if robotRulesStale {
+		if err := crawler.redisClient.Del(crawler.ctx, "robots:"+domain).Err(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (crawler *Crawler) isStale(url string) (bool, error) {
 	stale := true
 
@@ -447,16 +463,7 @@ func (crawler *Crawler) isStale(url string) (bool, error) {
 	return stale, nil
 }
 
-func parseFromCache(cmd *redis.StringCmd, accErr *RobotRulesError) *RobotRules {
-	robotRulesJson, err := cmd.Result()
-	if errors.Is(err, redis.Nil) {
-		return nil // Not found, not an error
-	}
-	if err != nil {
-		accErr.CacheError = fmt.Errorf("cache get: %w", err)
-		return nil
-	}
-
+func parseFromCache(robotRulesJson string, accErr *RobotRulesError) *RobotRules {
 	var robotRules RobotRules
 	if err := json.Unmarshal([]byte(robotRulesJson), &robotRules); err != nil {
 		accErr.CacheError = fmt.Errorf("unmarshal cached rules: %w", err)
