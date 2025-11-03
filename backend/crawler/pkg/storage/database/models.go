@@ -8,12 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type InvertedIndex struct {
-	Word         string
-	DocumentBits []byte
-	DocFrequency int64
-}
-
 type Link struct {
 	From string
 	To   string

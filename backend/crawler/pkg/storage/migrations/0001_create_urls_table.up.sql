@@ -29,12 +29,6 @@ CREATE TABLE url_data (
     CONSTRAINT fk_url_data_id FOREIGN KEY (url_id) REFERENCES urls(id) ON DELETE CASCADE
 );
 
-CREATE TABLE inverted_index (
-    word TEXT PRIMARY KEY,
-    document_bits BYTEA NOT NULL,
-    doc_frequency BIGINT NOT NULL
-);
-
 CREATE TABLE word_data (
     word TEXT NOT NULL,
     url_id BIGSERIAL NOT NULL,
@@ -44,6 +38,7 @@ CREATE TABLE word_data (
     tf_idf DOUBLE PRECISION,
 
     CONSTRAINT pk_word_data PRIMARY KEY (word, url_id),
-    CONSTRAINT fk_word_data_url_id FOREIGN KEY (url_id) REFERENCES urls(id) ON DELETE CASCADE,
-    CONSTRAINT fk_word_data_word FOREIGN KEY (word) REFERENCES inverted_index(word) ON DELETE CASCADE
+    CONSTRAINT fk_word_data_url_id FOREIGN KEY (url_id) REFERENCES urls(id) ON DELETE CASCADE
 );
+CREATE INDEX idx_word_data_word ON word_data(word);
+CREATE INDEX idx_word_data_url_id ON word_data(url_id);
