@@ -90,6 +90,8 @@ func (crawler *Crawler) Start() {
 				crawler.logger.Println("Error requeuing jobs:", processingJobs, "Error:", err)
 			}
 
+			crawler.logger.Println("recovered jobs:", processingJobs)
+
 			time.Sleep(30 * time.Minute)
 		}
 
@@ -235,12 +237,12 @@ func (crawler *Crawler) requeueJobs(jobs ...redis.Z) error {
 	return nil
 }
 
-func (crawler *Crawler) updateQueuesAndStorage(url, domain string, jobJson string, htmlContent *[]byte, links *[]database.BatchInsertLinksParams, rulesJson *[]byte, rulesExistInDb bool) error {
+func (crawler *Crawler) updateQueuesAndStorage(url, domain string, jobJson string, htmlContent *[]byte, links *[]database.BatchInsertLinksParams, rulesJson *[]byte, robotRulesStale bool) error {
 	if err := crawler.redisClient.HSet(crawler.ctx, "crawl:domain_delays", domain, time.Now().Unix()).Err(); err != nil {
 		return fmt.Errorf("failed to update domain delay for %s: %w", domain, err)
 	}
 
-	id, err := crawler.updateStorage(url, domain, links, rulesJson, rulesExistInDb)
+	id, err := crawler.updateStorage(url, domain, links, rulesJson, robotRulesStale)
 	if err != nil {
 		return fmt.Errorf("failed to update storage for URL %s: %w", url, err)
 	}
@@ -314,7 +316,7 @@ func (crawler *Crawler) queueForIndexing(htmlContent *[]byte, url string, id int
 	return nil
 }
 
-func (crawler *Crawler) updateStorage(url, domain string, links *[]database.BatchInsertLinksParams, rulesJson *[]byte, rulesExistInDb bool) (int64, error) {
+func (crawler *Crawler) updateStorage(url, domain string, links *[]database.BatchInsertLinksParams, rulesJson *[]byte, robotRulesStale bool) (int64, error) {
 	tx, err := crawler.dbPool.Begin(crawler.ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
@@ -340,7 +342,7 @@ func (crawler *Crawler) updateStorage(url, domain string, links *[]database.Batc
 		return 0, fmt.Errorf("failed to insert URL into postgres: %w", err)
 	}
 
-	if !rulesExistInDb {
+	if robotRulesStale {
 		if err = queriesWithTx.CreateRobotRules(crawler.ctx, database.CreateRobotRulesParams{
 			Domain:    domain,
 			RulesJson: *rulesJson,
@@ -465,6 +467,9 @@ func (crawler *Crawler) isStale(url string) (bool, error) {
 
 func parseFromCache(robotRulesJson string, accErr *RobotRulesError) *RobotRules {
 	var robotRules RobotRules
+	if robotRulesJson == "" {
+		return nil
+	}
 	if err := json.Unmarshal([]byte(robotRulesJson), &robotRules); err != nil {
 		accErr.CacheError = fmt.Errorf("unmarshal cached rules: %w", err)
 		return nil
