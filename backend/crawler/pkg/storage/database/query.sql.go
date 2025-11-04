@@ -16,7 +16,10 @@ INSERT INTO robot_rules (
   domain, rules_json
 ) VALUES (
   $1, $2
-)
+) ON CONFLICT (domain)
+DO UPDATE SET
+	rules_json = EXCLUDED.rules_json,
+	fetched_at = NOW()
 `
 
 type CreateRobotRulesParams struct {
@@ -68,7 +71,7 @@ func (q *Queries) GetUrl(ctx context.Context, url string) (Url, error) {
 	return i, err
 }
 
-const insertUrl = `-- name: InsertUrl :one
+const insertCrawledUrl = `-- name: InsertCrawledUrl :one
 INSERT INTO urls (url) VALUES (
   $1
 ) ON CONFLICT (url)
@@ -77,8 +80,8 @@ DO UPDATE SET
 RETURNING id
 `
 
-func (q *Queries) InsertUrl(ctx context.Context, url string) (int64, error) {
-	row := q.db.QueryRow(ctx, insertUrl, url)
+func (q *Queries) InsertCrawledUrl(ctx context.Context, url string) (int64, error) {
+	row := q.db.QueryRow(ctx, insertCrawledUrl, url)
 	var id int64
 	err := row.Scan(&id)
 	return id, err

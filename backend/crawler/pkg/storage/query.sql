@@ -2,12 +2,20 @@
 SELECT * FROM urls
 WHERE url = $1 LIMIT 1;
 
--- name: InsertUrl :one
+-- name: InsertCrawledUrl :one
 INSERT INTO urls (url) VALUES (
   $1
 ) ON CONFLICT (url)
 DO UPDATE SET
 	fetched_at = NOW()
+RETURNING id;
+
+-- name: InsertUrls :batchone
+INSERT INTO urls (url) VALUES (
+  $1
+) ON CONFLICT (url)
+DO UPDATE SET
+	url = urls.url
 RETURNING id;
 
 -- name: DeleteUrl :exec
@@ -19,7 +27,10 @@ INSERT INTO robot_rules (
   domain, rules_json
 ) VALUES (
   $1, $2
-);
+) ON CONFLICT (domain)
+DO UPDATE SET
+	rules_json = EXCLUDED.rules_json,
+	fetched_at = NOW();
 
 -- name: GetRobotRules :one
 SELECT * FROM robot_rules

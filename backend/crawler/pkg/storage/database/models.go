@@ -9,8 +9,8 @@ import (
 )
 
 type Link struct {
-	From string
-	To   string
+	From int64
+	To   int64
 }
 
 type RobotRule struct {

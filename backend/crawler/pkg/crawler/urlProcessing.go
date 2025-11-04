@@ -3,7 +3,6 @@ package crawler
 import (
 	"bytes"
 	"crawler/pkg/queue"
-	"crawler/pkg/storage/database"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,7 +17,7 @@ var (
 	errNotValidResource = fmt.Errorf("not a valid web page")
 )
 
-func (crawler *Crawler) ProcessURL(urlString string) (*[]database.BatchInsertLinksParams, []byte, error) {
+func (crawler *Crawler) ProcessURL(urlString string) (*[]string, []byte, error) {
 	allowedResourceType := false
 
 	resp, err := crawler.httpClient.Get(urlString)
@@ -66,9 +65,9 @@ func (crawler *Crawler) ProcessURL(urlString string) (*[]database.BatchInsertLin
 	return links, htmlBytes, nil
 }
 
-func (crawler *Crawler) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[]database.BatchInsertLinksParams, error) {
+func (crawler *Crawler) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[]string, error) {
 	uniqueUrls := make(map[string]struct{})
-	outlinks := make([]database.BatchInsertLinksParams, 0)
+	outlinks := make([]string, 0)
 	pipe := crawler.redisClient.Pipeline()
 	tokenizer := html.NewTokenizer(bytes.NewReader(htmlBytes))
 
@@ -127,10 +126,7 @@ func (crawler *Crawler) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (
 						}
 
 						uniqueUrls[normalizedURL] = struct{}{}
-						outlinks = append(outlinks, database.BatchInsertLinksParams{
-							From: baseURL,
-							To:   normalizedURL,
-						})
+						outlinks = append(outlinks, normalizedURL)
 						pipe.ZIncrBy(crawler.ctx, queue.PendingQueue, 1, normalizedURL)
 
 						break

@@ -32,8 +32,8 @@ type BatchInsertLinksBatchResults struct {
 }
 
 type BatchInsertLinksParams struct {
-	From string
-	To   string
+	From int64
+	To   int64
 }
 
 func (q *Queries) BatchInsertLinks(ctx context.Context, arg []BatchInsertLinksParams) *BatchInsertLinksBatchResults {
@@ -66,6 +66,56 @@ func (b *BatchInsertLinksBatchResults) Exec(f func(int, error)) {
 }
 
 func (b *BatchInsertLinksBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const insertUrls = `-- name: InsertUrls :batchone
+INSERT INTO urls (url) VALUES (
+  $1
+) ON CONFLICT (url)
+DO UPDATE SET
+	url = urls.url
+RETURNING id
+`
+
+type InsertUrlsBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+func (q *Queries) InsertUrls(ctx context.Context, url []string) *InsertUrlsBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range url {
+		vals := []interface{}{
+			a,
+		}
+		batch.Queue(insertUrls, vals...)
+	}
+	br := q.db.SendBatch(ctx, batch)
+	return &InsertUrlsBatchResults{br, len(url), false}
+}
+
+func (b *InsertUrlsBatchResults) QueryRow(f func(int, int64, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		var id int64
+		if b.closed {
+			if f != nil {
+				f(t, id, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		row := b.br.QueryRow()
+		err := row.Scan(&id)
+		if f != nil {
+			f(t, id, err)
+		}
+	}
+}
+
+func (b *InsertUrlsBatchResults) Close() error {
 	b.closed = true
 	return b.br.Close()
 }

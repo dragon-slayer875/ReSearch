@@ -2,7 +2,7 @@ CREATE TABLE urls (
     id BIGSERIAL PRIMARY KEY,
     url TEXT NOT NULL UNIQUE,
 	page_rank DOUBLE PRECISION,
-    fetched_at TIMESTAMP NOT NULL DEFAULT NOW()
+    fetched_at TIMESTAMP
 );
 CREATE INDEX idx_urls_url ON urls(url);
 
@@ -13,12 +13,15 @@ CREATE TABLE robot_rules (
 );
 
 CREATE TABLE links (
-	"from" TEXT NOT NULL,
-	"to" TEXT NOT NULL,
+	"from" BIGSERIAL NOT NULL,
+	"to" BIGSERIAL NOT NULL,
 
     CONSTRAINT pk_links PRIMARY KEY ("from", "to"),
-    CONSTRAINT fk_links FOREIGN KEY ("from") REFERENCES urls(url) ON DELETE CASCADE
+    CONSTRAINT fk_links_from FOREIGN KEY ("from") REFERENCES urls(id) ON DELETE CASCADE,
+    CONSTRAINT fk_links_to FOREIGN KEY ("to") REFERENCES urls(id) ON DELETE CASCADE
 );
+CREATE INDEX idx_links_from ON links("from");
+CREATE INDEX idx_links_to ON links("to");
 
 CREATE TABLE url_data (
     url_id BIGSERIAL PRIMARY KEY,

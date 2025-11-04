@@ -65,6 +65,8 @@ func (crawler *Crawler) Start() {
 
 		// transfer urls in processing queue which are older than 30 minute to pending queue
 		for {
+			time.Sleep(30 * time.Minute)
+
 			processingJobsJson, err := crawler.redisClient.ZRangeByScore(crawler.ctx, queue.ProcessingQueue, &redis.ZRangeBy{
 				Min:    "0",
 				Max:    strconv.FormatInt(time.Now().Add(-time.Minute*30).Unix(), 10),
@@ -91,8 +93,6 @@ func (crawler *Crawler) Start() {
 			}
 
 			crawler.logger.Println("recovered jobs:", processingJobs)
-
-			time.Sleep(30 * time.Minute)
 		}
 
 	}()
@@ -220,8 +220,13 @@ func (crawler *Crawler) discardJob(jobJson string) error {
 func (crawler *Crawler) requeueJobs(jobs ...redis.Z) error {
 	pipe := crawler.redisClient.Pipeline()
 
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	pipe.ZAdd(crawler.ctx, queue.PendingQueue, jobs...)
+
 	for _, job := range jobs {
-		pipe.ZAdd(crawler.ctx, queue.PendingQueue, job)
 		jobJson, err := json.Marshal(job)
 		if err != nil {
 			return fmt.Errorf("failed to marshal job: %w", err)
@@ -237,7 +242,7 @@ func (crawler *Crawler) requeueJobs(jobs ...redis.Z) error {
 	return nil
 }
 
-func (crawler *Crawler) updateQueuesAndStorage(url, domain string, jobJson string, htmlContent *[]byte, links *[]database.BatchInsertLinksParams, rulesJson *[]byte, robotRulesStale bool) error {
+func (crawler *Crawler) updateQueuesAndStorage(url, domain string, jobJson string, htmlContent *[]byte, links *[]string, rulesJson *[]byte, robotRulesStale bool) error {
 	if err := crawler.redisClient.HSet(crawler.ctx, "crawl:domain_delays", domain, time.Now().Unix()).Err(); err != nil {
 		return fmt.Errorf("failed to update domain delay for %s: %w", domain, err)
 	}
@@ -316,7 +321,7 @@ func (crawler *Crawler) queueForIndexing(htmlContent *[]byte, url string, id int
 	return nil
 }
 
-func (crawler *Crawler) updateStorage(url, domain string, links *[]database.BatchInsertLinksParams, rulesJson *[]byte, robotRulesStale bool) (int64, error) {
+func (crawler *Crawler) updateStorage(url, domain string, links *[]string, rulesJson *[]byte, robotRulesStale bool) (int64, error) {
 	tx, err := crawler.dbPool.Begin(crawler.ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
@@ -327,19 +332,35 @@ func (crawler *Crawler) updateStorage(url, domain string, links *[]database.Batc
 	queries := &database.Queries{}
 	queriesWithTx := queries.WithTx(tx)
 
-	id, err := queriesWithTx.InsertUrl(crawler.ctx, url)
+	crawledUrlId, err := queriesWithTx.InsertCrawledUrl(crawler.ctx, url)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert URL into postgres: %w", err)
 	}
 
-	results := queriesWithTx.BatchInsertLinks(crawler.ctx, *links)
+	insertLinksBatch := make([]database.BatchInsertLinksParams, 0)
 	var batchErr error
-	results.Exec(func(i int, err error) {
+	urlInsertResults := queriesWithTx.InsertUrls(crawler.ctx, *links)
+	urlInsertResults.QueryRow(func(idx int, id int64, err error) {
+		if err != nil {
+			batchErr = err
+			return
+		}
+		insertLinksBatch = append(insertLinksBatch, database.BatchInsertLinksParams{
+			From: crawledUrlId,
+			To:   id,
+		})
+	})
+	if batchErr != nil {
+		return 0, fmt.Errorf("failed to insert URL into postgres: %w", batchErr)
+	}
+
+	linkInsertResults := queriesWithTx.BatchInsertLinks(crawler.ctx, insertLinksBatch)
+	linkInsertResults.Exec(func(i int, err error) {
 		batchErr = err
 	})
 
 	if batchErr != nil {
-		return 0, fmt.Errorf("failed to insert URL into postgres: %w", err)
+		return 0, fmt.Errorf("failed to insert link into postgres: %w", batchErr)
 	}
 
 	if robotRulesStale {
@@ -351,7 +372,7 @@ func (crawler *Crawler) updateStorage(url, domain string, links *[]database.Batc
 		}
 	}
 
-	return id, tx.Commit(crawler.ctx)
+	return crawledUrlId, tx.Commit(crawler.ctx)
 }
 
 func (crawler *Crawler) GetRobotRules(domainString string, workerID int) (*RobotRules, bool, error) {
