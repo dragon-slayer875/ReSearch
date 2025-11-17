@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"golang.org/x/net/html"
 )
@@ -17,14 +18,18 @@ var (
 	errNotValidResource = fmt.Errorf("not a valid web page")
 )
 
-func (crawler *Crawler) ProcessURL(urlString string) (*[]string, []byte, error) {
+func (worker *Worker) ProcessURL(url, domain string) (*[]string, []byte, error) {
 	allowedResourceType := false
 
-	resp, err := crawler.httpClient.Get(urlString)
+	resp, err := worker.httpClient.Get(url)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer resp.Body.Close()
+
+	if err := worker.redisClient.HSet(worker.ctx, "crawl:domain_delays", domain, time.Now().Unix()).Err(); err != nil {
+		return nil, nil, fmt.Errorf("failed to update domain delay for %s: %w", domain, err)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, nil, fmt.Errorf("HTTP error: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
@@ -57,7 +62,7 @@ func (crawler *Crawler) ProcessURL(urlString string) (*[]string, []byte, error) 
 		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	links, err := crawler.discoverAndQueueUrls(urlString, htmlBytes)
+	links, err := worker.discoverAndQueueUrls(url, htmlBytes)
 	if err != nil && err != io.EOF {
 		return nil, nil, err
 	}
@@ -65,10 +70,10 @@ func (crawler *Crawler) ProcessURL(urlString string) (*[]string, []byte, error) 
 	return links, htmlBytes, nil
 }
 
-func (crawler *Crawler) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[]string, error) {
+func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[]string, error) {
 	uniqueUrls := make(map[string]struct{})
 	outlinks := make([]string, 0)
-	pipe := crawler.redisClient.Pipeline()
+	pipe := worker.redisClient.Pipeline()
 	tokenizer := html.NewTokenizer(bytes.NewReader(htmlBytes))
 
 	for {
@@ -79,7 +84,7 @@ func (crawler *Crawler) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (
 				return nil, err
 			}
 
-			if _, err := pipe.Exec(crawler.ctx); err != nil {
+			if _, err := pipe.Exec(worker.ctx); err != nil {
 				return nil, err
 			}
 
@@ -103,21 +108,21 @@ func (crawler *Crawler) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (
 					if attr.Key == "href" {
 						validatedUrl, err := validateUrl(baseURL, attr.Val)
 						if err != nil {
-							crawler.logger.Println("Url validation error:", err)
+							worker.logger.Errorln("Url validation error:", err)
 							continue
 						}
 
 						isAllowed, err := isUrlOfAllowedResourceType(validatedUrl)
 						if err != nil || !isAllowed {
 							if err != nil {
-								crawler.logger.Println("Url validation error:", err)
+								worker.logger.Errorln("Url validation error:", err)
 							}
 							continue
 						}
 
 						normalizedURL, err := normalizeURL(validatedUrl)
 						if err != nil {
-							crawler.logger.Println("Url normalization error:", err)
+							worker.logger.Errorln("Url normalization error:", err)
 							continue
 						}
 
@@ -127,7 +132,7 @@ func (crawler *Crawler) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (
 
 						uniqueUrls[normalizedURL] = struct{}{}
 						outlinks = append(outlinks, normalizedURL)
-						pipe.ZIncrBy(crawler.ctx, queue.PendingQueue, 1, normalizedURL)
+						pipe.ZIncrBy(worker.ctx, queue.PendingQueue, 1, normalizedURL)
 
 						break
 					}

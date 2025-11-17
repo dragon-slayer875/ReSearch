@@ -6,7 +6,6 @@ import (
 	"crawler/pkg/crawler"
 	"crawler/pkg/queue"
 	"flag"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"go.uber.org/zap"
 )
 
 type HeaderRoundTripper struct {
@@ -32,34 +32,53 @@ func (h *HeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 }
 
 func main() {
+	debug := flag.Bool("debug", false, "Enable debug logs")
 	seedPath := flag.String("seed", "", "Path to seed URLs file")
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
 	envPath := flag.String("env", ".env", "Path to env variables file")
 	flag.Parse()
 
-	logger := log.New(os.Stdout, "crawler: ", log.LstdFlags)
+	logger := zap.Must(zap.NewProduction())
+	if *debug {
+		zapConfig := zap.Config{
+			Level:         zap.NewAtomicLevelAt(zap.DebugLevel),
+			Development:   true,
+			OutputPaths:   []string{"logs.txt"},
+			Encoding:      "console",
+			EncoderConfig: zap.NewDevelopmentEncoderConfig(),
+		}
+		logger = zap.Must(zapConfig.Build())
+	}
+
+	defer logger.Sync()
+
+	sugaredLogger := logger.Sugar().Named("Crawler")
 
 	ctx := context.Background()
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		logger.Fatalln("Failed to load config:", err)
+		sugaredLogger.Fatalln("Failed to load config:", err)
 	}
+	sugaredLogger.Debugln("Config loaded")
 
 	err = godotenv.Load(*envPath)
 	if err != nil {
-		logger.Fatalln("Error loading environment variables:", err)
+		sugaredLogger.Fatalln("Error loading environment variables:", err)
 	}
+	sugaredLogger.Debugln(".env loaded")
 
 	redisClient, err := queue.NewRedisClient(os.Getenv("REDIS_URL"))
 	if err != nil {
-		logger.Fatalf("Failed to connect to Redis: %v", err)
+		sugaredLogger.Fatalln("Failed to connect to Redis:", err)
 	}
+	sugaredLogger.Debugln("Redis client initialized")
 
 	dbPool, err := pgxpool.New(ctx, os.Getenv("POSTGRES_URL"))
 	if err != nil {
-		logger.Fatalf("Failed to connect to PostgreSQL: %v", err)
+		sugaredLogger.Fatalln("Failed to connect to PostgreSQL", err)
 	}
+	sugaredLogger.Debugln("PostgreSQL client initialized")
 
 	transport := &http.Transport{
 		MaxIdleConns:    cfg.Crawler.MaxIdleConns,
@@ -85,16 +104,16 @@ func main() {
 
 	go func() {
 		<-sigChan
-		logger.Println("Received shutdown signal, exiting...")
+		sugaredLogger.Infoln("Received shutdown signal, exiting...")
 		os.Exit(0)
 	}()
 
-	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient, dbPool, httpClient, context.Background())
+	Crawler := crawler.NewCrawler(sugaredLogger, cfg.Crawler.WorkerCount, redisClient, dbPool, httpClient, context.Background())
 
 	if *seedPath != "" {
 		Crawler.PublishSeedUrls(*seedPath)
 	}
 
-	logger.Println("Starting...")
+	sugaredLogger.Infoln("Starting...")
 	Crawler.Start()
 }

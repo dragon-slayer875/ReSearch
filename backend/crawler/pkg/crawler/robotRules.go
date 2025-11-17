@@ -26,8 +26,6 @@ type RobotRulesError struct {
 	LockError  error
 }
 
-const robotRulesLockTimeout = 30 * time.Second
-
 var rulesLockedError = fmt.Errorf("rules lock already held by another worker")
 
 func (e *RobotRulesError) Error() string {

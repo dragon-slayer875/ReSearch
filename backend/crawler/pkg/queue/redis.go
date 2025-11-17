@@ -9,7 +9,8 @@ import (
 const (
 	PendingQueue      = "crawl:pending"
 	ProcessingQueue   = "crawl:processing"
-	SeenSet           = "crawl:seen"
+	ReadyQueue        = "crawl:ready"
+	PrioritySet       = "processing_job_priority"
 	IndexPendingQueue = "index:pending"
 )
 
