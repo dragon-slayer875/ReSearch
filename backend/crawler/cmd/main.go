@@ -43,7 +43,7 @@ func main() {
 		zapConfig := zap.Config{
 			Level:         zap.NewAtomicLevelAt(zap.DebugLevel),
 			Development:   true,
-			OutputPaths:   []string{"logs.txt"},
+			OutputPaths:   []string{"stdout", "logs.txt"},
 			Encoding:      "console",
 			EncoderConfig: zap.NewDevelopmentEncoderConfig(),
 		}
@@ -54,7 +54,7 @@ func main() {
 
 	sugaredLogger := logger.Sugar().Named("Crawler")
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -70,15 +70,19 @@ func main() {
 
 	redisClient, err := queue.NewRedisClient(os.Getenv("REDIS_URL"))
 	if err != nil {
-		sugaredLogger.Fatalln("Failed to connect to Redis:", err)
+		sugaredLogger.Fatalln(err)
 	}
 	sugaredLogger.Debugln("Redis client initialized")
+
+	defer redisClient.Close()
 
 	dbPool, err := pgxpool.New(ctx, os.Getenv("POSTGRES_URL"))
 	if err != nil {
 		sugaredLogger.Fatalln("Failed to connect to PostgreSQL", err)
 	}
 	sugaredLogger.Debugln("PostgreSQL client initialized")
+
+	defer dbPool.Close()
 
 	transport := &http.Transport{
 		MaxIdleConns:    cfg.Crawler.MaxIdleConns,
@@ -97,18 +101,16 @@ func main() {
 		},
 	}
 
-	defer dbPool.Close()
-
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
 
 	go func() {
 		<-sigChan
-		sugaredLogger.Infoln("Received shutdown signal, exiting...")
-		os.Exit(0)
+		sugaredLogger.Infoln("Received shutdown signal, completing running jobs...")
+		cancel()
 	}()
 
-	Crawler := crawler.NewCrawler(sugaredLogger, cfg.Crawler.WorkerCount, redisClient, dbPool, httpClient, context.Background())
+	Crawler := crawler.NewCrawler(sugaredLogger, cfg.Crawler.WorkerCount, redisClient, dbPool, httpClient, ctx)
 
 	if *seedPath != "" {
 		Crawler.PublishSeedUrls(*seedPath)
@@ -116,4 +118,6 @@ func main() {
 
 	sugaredLogger.Infoln("Starting...")
 	Crawler.Start()
+	sugaredLogger.Infoln("Exiting.")
+
 }

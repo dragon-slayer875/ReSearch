@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
+)
+
+var (
+	errNotStale = fmt.Errorf("URL is not stale")
 )
 
 type Crawler struct {
@@ -121,7 +126,7 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 
 	file, err := os.Open(seedPath)
 	if err != nil {
-		crawler.logger.Errorln("Failed to seed urls: ", err)
+		crawler.logger.Errorln("Failed to seed urls:", err)
 	}
 	defer file.Close()
 
@@ -129,13 +134,29 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 
 	for scanner.Scan() {
 		url := scanner.Text()
-		normalizedURL, err := normalizeURL(url)
+		normalizedURL, ext, err := normalizeURL("", url)
+		if err != nil {
+			crawler.logger.Warnln(err)
+			continue
+		}
+
+		if ext != "" {
+			isAllowed := isUrlOfAllowedResourceType(normalizedURL)
+			if !isAllowed {
+				continue
+			}
+		}
+
+		domain, err := extractDomainFromUrl(normalizedURL)
 		if err != nil {
 			crawler.logger.Errorln(err)
 			continue
 		}
-		pipe.ZIncrBy(crawler.ctx, queue.PendingQueue, 1000000000000, normalizedURL)
-		crawler.logger.Debugln("Published seed URL:", url)
+		pipe.ZAddNX(crawler.ctx, queue.DomainPendingQueue, redis.Z{
+			Member: domain,
+			Score:  float64(time.Now().Unix()),
+		})
+		pipe.LPush(crawler.ctx, "crawl_queue:"+domain, normalizedURL)
 	}
 
 	_, err = pipe.Exec(crawler.ctx)
@@ -143,133 +164,140 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 		crawler.logger.Errorln("Failed to seed urls:", err)
 		return
 	}
-
+	crawler.logger.Infoln("Published seed URLs")
 }
 
 func (worker *Worker) work() {
+	loggerWithoutDomain := worker.logger
 	for {
-		job, err := worker.getNextJob()
+		domain, err := worker.getNextDomain()
 		if err != nil {
 			switch err {
 			case redis.Nil:
-				worker.logger.Infoln("Queue empty")
+				worker.logger.Infoln("No domains in queue")
 			default:
 				worker.logger.Errorln("Error getting URL from queue:", err)
 			}
 			continue
 		}
-		worker.logger.Debugln("Got job", job)
 
-		url := job.Member.(string)
-
-		stale, err := worker.isStale(url)
-		if err != nil {
-			worker.logger.Errorln(err)
-			continue
-		}
-		if !stale {
-			worker.logger.Infof("Not stale, skipping &s", url)
-			if err := worker.discardJob(url); err != nil {
-				worker.logger.Errorln("Error discarding job:", err)
-			}
-			continue
-		}
-
-		domain, err := extractDomainFromUrl(url)
-		if err != nil {
-			worker.logger.Errorln("Error extracting domain from URL", url, ":", err)
-			continue
-		}
-		worker.logger.Debugln("Got domain", domain)
-
-		robotRules, robotRulesStale, err := worker.GetRobotRules(domain)
-		if err != nil {
-			if errors.Is(err, rulesLockedError) {
-				continue
-			}
-			worker.logger.Errorln("Error getting robot rules for", url, ". Error:", err)
-		}
-
-		if !robotRules.isPolite(domain, worker.redisClient) {
-			if err = worker.requeueJobs(job); err != nil {
-				worker.logger.Errorln("Error requeuing URL:", url, "Error:", err)
-			}
-			if err = worker.removeRobotRulesFromCache(domain, robotRulesStale); err != nil {
-				worker.logger.Errorln("Error requeuing URL:", url, "Error:", err)
-			}
-			continue
-		}
-
-		if !robotRules.isAllowed(url) {
-			if err := worker.discardJob(url); err != nil {
-				worker.logger.Errorln("Error discarding URL:", url, "Error:", err)
-			}
-			if err = worker.removeRobotRulesFromCache(domain, robotRulesStale); err != nil {
-				worker.logger.Errorln("Error requeuing URL:", url, "Error:", err)
-			}
-			continue
-		}
-
-		worker.logger.Infoln("Processing job:", job.Member)
-
-		links, htmlContent, err := worker.ProcessURL(url, domain)
-		if err != nil {
-			if err == errNotEnglishPage || err == errNotValidResource {
-				if err := worker.discardJob(url); err != nil {
-					worker.logger.Errorln("Error discarding URL:", url, "Error:", err)
-				}
+		worker.logger = worker.logger.With("domain", domain)
+		if err := worker.processDomain(domain); err != nil {
+			if strings.HasPrefix(err.Error(), "lock already taken") {
+				worker.logger.Infow("Domain already acquired by another worker")
 			} else {
-				worker.logger.Errorln("Error processing URL:", url, "Error:", err)
+				worker.logger.Errorln(err)
 			}
-			if err = worker.removeRobotRulesFromCache(domain, robotRulesStale); err != nil {
-				worker.logger.Errorln("Error requeuing URL:", url, "Error:", err)
-			}
-			continue
 		}
-
-		robotRulesJson, _ := json.Marshal(robotRules)
-
-		if err := worker.updateQueuesAndStorage(url, domain, &htmlContent, links, &robotRulesJson, robotRulesStale); err != nil {
-			worker.logger.Errorln(err)
-			if err = worker.removeRobotRulesFromCache(domain, robotRulesStale); err != nil {
-				worker.logger.Errorln("Error requeuing URL:", url, "Error:", err)
-			}
-			continue
-		}
-
-		worker.logger.Infoln("Processed job:", job.Member)
+		worker.logger = loggerWithoutDomain
 	}
 }
 
-func (worker *Worker) discardJob(url string) error {
-	worker.logger.Debugln("discarding job", url)
-	pipe := worker.redisClient.Pipeline()
-	pipe.ZRem(worker.ctx, queue.ProcessingQueue, url)
-	pipe.HDel(worker.ctx, queue.PrioritySet, url)
+func (worker *Worker) processDomain(domain string) error {
+	domainLockKey := "domain_lock:" + domain
 
-	if _, err := pipe.Exec(worker.ctx); err != nil {
+	pool := goredis.NewPool(worker.redisClient)
+	rs := redsync.New(pool)
+
+	mutex := rs.NewMutex(domainLockKey)
+	redsync.WithExpiry(20 * time.Minute).Apply(mutex)
+
+	if err := mutex.Lock(); err != nil {
 		return err
+	}
+
+	defer func() {
+		if _, err := mutex.Unlock(); err != nil {
+			worker.logger.Errorln(err)
+		}
+
+		// if err := worker.redisClient.ZRem(worker.ctx, queue.DomainProcessingQueue, domain).Err(); err != nil {
+		// 	return err
+		// }
+
+	}()
+
+	robotRules, err := worker.GetRobotRules(domain)
+	if err != nil {
+		if robotRules == nil {
+			return err
+		}
+		worker.logger.Warnln(err)
+	}
+
+	loggerWithoutUrl := worker.logger
+	for {
+		url, err := worker.getNextUrlForDomain(domain)
+		if err == redis.Nil {
+			worker.logger.Infoln("Domain's URL queue is empty")
+			break
+		}
+		if err != nil {
+			worker.logger.Errorln("Error getting next URL: ", err)
+			continue
+		}
+
+		worker.logger = worker.logger.With("URL", url)
+
+		err = worker.processUrl(url, domain, robotRules)
+		if err != nil {
+			switch err {
+			case errNotStale, errNotEnglishPage, errNotValidResource:
+				worker.logger.Infoln(err)
+				if err := worker.discardJob(url); err != nil {
+					worker.logger.Errorln("Error discarding URL:", err)
+				}
+			default:
+				worker.logger.Errorln("Error processing URL:", err)
+			}
+		}
+
+		worker.logger = loggerWithoutUrl
 	}
 
 	return nil
 }
 
-func (worker *Worker) requeueJobs(jobs ...redis.Z) error {
-	if len(jobs) == 0 {
-		return nil
+func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) error {
+	worker.logger.Infoln("Processing URL")
+
+	stale, err := worker.isStale(url)
+	if err != nil {
+		return err
+	}
+	if !stale {
+		return errNotStale
 	}
 
-	worker.logger.Debugln("requeuing jobs", jobs)
-
-	pipe := worker.redisClient.Pipeline()
-	pipe.ZAdd(worker.ctx, queue.PendingQueue, jobs...)
-
-	for _, job := range jobs {
-		pipe.ZRem(worker.ctx, queue.ProcessingQueue, job.Member.(string))
-		pipe.HDel(worker.ctx, queue.PrioritySet, job.Member.(string))
+	worker.logger.Infoln("Checking politeness")
+	polite, err := robotRules.isPolite(domain, worker.redisClient)
+	if err != nil && err != redis.Nil {
+		return err
+	}
+	if !polite {
+		worker.logger.Infoln("Impolite sleeping..")
+		time.Sleep(time.Second * time.Duration(robotRules.CrawlDelay))
 	}
 
-	_, err := pipe.Exec(worker.ctx)
+	worker.logger.Infoln("Crawling")
+	links, htmlContent, err := worker.crawlUrl(url, domain)
+	if err != nil {
+		return err
+	}
+
+	worker.logger.Infoln("Updating storage and queues")
+	if err := worker.updateQueuesAndStorage(url, &htmlContent, links); err != nil {
+		return err
+	}
+
+	worker.logger.Infoln("Processed job")
+	return nil
+}
+
+func (worker *Worker) discardJob(url string) error {
+	worker.logger.Infoln("Discarding job")
+	err := worker.redisClient.ZRem(worker.ctx, queue.UrlsProcessingQueue, url).Err()
+
 	if err != nil {
 		return err
 	}
@@ -277,51 +305,70 @@ func (worker *Worker) requeueJobs(jobs ...redis.Z) error {
 	return nil
 }
 
-func (worker *Worker) updateQueuesAndStorage(url, domain string, htmlContent *[]byte, links *[]string, rulesJson *[]byte, robotRulesStale bool) error {
-	id, err := worker.updateStorage(url, domain, links, rulesJson, robotRulesStale)
+// func (worker *Worker) requeueJobs(jobs ...redis.Z) error {
+// 	if len(jobs) == 0 {
+// 		return nil
+// 	}
+//
+// 	worker.logger.Debugln("requeuing jobs", jobs)
+//
+// 	pipe := worker.redisClient.Pipeline()
+// 	pipe.ZAdd(worker.ctx, queue.DomainPendingQueue, jobs...)
+//
+// 	for _, job := range jobs {
+// 		pipe.ZRem(worker.ctx, queue.UrlsProcessingQueue, job.Member.(string))
+// 	}
+//
+// 	_, err := pipe.Exec(worker.ctx)
+// 	if err != nil {
+// 		return err
+// 	}
+//
+// 	return nil
+// }
+
+func (worker *Worker) updateQueuesAndStorage(url string, htmlContent *[]byte, links *[]string) error {
+	id, err := worker.updateStorage(url, links)
 	if err != nil {
 		return fmt.Errorf("failed to update storage for URL %s: %w", url, err)
 	}
 
-	if err := worker.queueForIndexing(htmlContent, url, id); err != nil {
+	if err := worker.updateQueues(htmlContent, url, id); err != nil {
 		return fmt.Errorf("failed to queue URL %s for indexing: %w", url, err)
-	}
-
-	pipe := worker.redisClient.Pipeline()
-	pipe.ZRem(worker.ctx, queue.ProcessingQueue, url)
-	pipe.HDel(worker.ctx, queue.PrioritySet, url)
-
-	if _, err := pipe.Exec(worker.ctx); err != nil {
-		return err
 	}
 
 	return nil
 }
 
-func (worker *Worker) getNextJob() (redis.Z, error) {
-	result, err := worker.redisClient.BZPopMax(worker.ctx, 30*time.Second, queue.PendingQueue).Result()
+func (worker *Worker) getNextDomain() (string, error) {
+	domainWithScore, err := worker.redisClient.BZPopMin(worker.ctx, time.Second*30, queue.DomainPendingQueue).Result()
 	if err != nil {
-		return redis.Z{}, err
+		return "", err
 	}
 
-	job := result.Z
-	url := job.Member.(string)
-
-	pipe := worker.redisClient.Pipeline()
-	pipe.ZAdd(worker.ctx, queue.ProcessingQueue, redis.Z{
-		Score:  float64(time.Now().Unix()),
-		Member: url,
-	})
-	pipe.HSet(worker.ctx, queue.PrioritySet, url, job.Score)
-
-	if _, err := pipe.Exec(worker.ctx); err != nil {
-		return redis.Z{}, err
-	}
-
-	return job, nil
+	return domainWithScore.Member.(string), nil
 }
 
-func (worker *Worker) queueForIndexing(htmlContent *[]byte, url string, id int64) error {
+func (worker *Worker) getNextUrlForDomain(domain string) (string, error) {
+	result, err := worker.redisClient.BRPop(worker.ctx, 30*time.Second, "crawl_queue:"+domain).Result()
+	if err != nil {
+		return "", err
+	}
+
+	url := result[1]
+
+	err = worker.redisClient.ZAdd(worker.ctx, queue.UrlsProcessingQueue, redis.Z{
+		Score:  float64(time.Now().Unix()),
+		Member: url,
+	}).Err()
+	if err != nil {
+		return url, err
+	}
+
+	return url, nil
+}
+
+func (worker *Worker) updateQueues(htmlContent *[]byte, url string, id int64) error {
 	payload := struct {
 		Id          int64  `json:"id"`
 		Url         string `json:"url"`
@@ -338,16 +385,17 @@ func (worker *Worker) queueForIndexing(htmlContent *[]byte, url string, id int64
 	pipe := worker.redisClient.Pipeline()
 	pipe.Set(worker.ctx, url, payloadJSON, 0)
 	pipe.LPush(worker.ctx, queue.IndexPendingQueue, url)
+	pipe.ZRem(worker.ctx, queue.UrlsProcessingQueue, url)
 
 	_, err = pipe.Exec(worker.ctx)
 	if err != nil {
-		return fmt.Errorf("redis pipeline err: %w", err)
+		return fmt.Errorf("failed to update queues: %w", err)
 	}
 
 	return nil
 }
 
-func (worker *Worker) updateStorage(url, domain string, links *[]string, rulesJson *[]byte, robotRulesStale bool) (int64, error) {
+func (worker *Worker) updateStorage(url string, links *[]string) (int64, error) {
 	tx, err := worker.dbPool.Begin(worker.ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
@@ -389,26 +437,15 @@ func (worker *Worker) updateStorage(url, domain string, links *[]string, rulesJs
 		return 0, fmt.Errorf("failed to insert link into postgres: %w", batchErr)
 	}
 
-	if robotRulesStale {
-		if err = queriesWithTx.CreateRobotRules(worker.ctx, database.CreateRobotRulesParams{
-			Domain:    domain,
-			RulesJson: *rulesJson,
-		}); err != nil {
-			return 0, fmt.Errorf("failed to create robot rules: %w", err)
-		}
-	}
-
 	return crawledUrlId, tx.Commit(worker.ctx)
 }
 
-func (worker *Worker) GetRobotRules(domainString string) (*RobotRules, bool, error) {
-	var robotRulesStale bool
+func (worker *Worker) GetRobotRules(domain string) (*RobotRules, error) {
 	var accErr RobotRulesError
-	pool := goredis.NewPool(worker.redisClient)
-	rs := redsync.New(pool)
 
-	cacheKey := "robots:" + domainString
-	lockKey := "robots_lock:" + domainString
+	cacheKey := "robots:" + domain
+
+	worker.logger.Debugln("Getting Robot rules from cache")
 
 	robotRulesJson, err := worker.redisClient.Get(worker.ctx, cacheKey).Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
@@ -416,63 +453,68 @@ func (worker *Worker) GetRobotRules(domainString string) (*RobotRules, bool, err
 	}
 
 	if robotRules := parseFromCache(robotRulesJson, &accErr); robotRules != nil {
-		return robotRules, robotRulesStale, conditionalError(&accErr)
+		return robotRules, conditionalError(&accErr)
 	}
-	worker.logger.Debugln("Robot rules cache miss", domainString)
 
-	mutex := rs.NewMutex(lockKey)
-	if err := mutex.Lock(); err != nil {
-		return nil, false, err
-	}
-	worker.logger.Debugln("Robot rules cache key acquired", domainString)
+	worker.logger.Debugln("Robot rules cache miss")
 
-	worker.logger.Debugln("Getting Robot rules from DB", domainString)
-	robotRules, robotRulesStale := worker.tryGetFromDB(domainString, &accErr)
-	if robotRules == nil || robotRulesStale {
-		worker.logger.Debugln("Local miss, Getting Robot rules from web", domainString)
-		robotRules = worker.tryGetFromWeb(domainString, &accErr)
+	worker.logger.Debugln("Getting Robot rules from DB")
+
+	robotRules := worker.tryGetFromDB(domain, &accErr)
+	if robotRules == nil {
+		worker.logger.Debugln("Robot rules DB miss, Getting Robot rules from web")
+		robotRules = worker.tryGetFromWeb(domain, &accErr)
 		if robotRules == nil {
 			robotRules = defaultRobotRules()
 		}
+
+		robotRulesJson, err := json.Marshal(robotRules)
+		if err != nil {
+			return nil, err
+		}
+
+		if err = worker.storeRobotRules(domain, robotRulesJson); err != nil {
+			return nil, err
+		}
 	}
 
-	worker.logger.Debugln("Caching robot rules", domainString)
-	worker.tryCacheRules(domainString, robotRules, &accErr)
+	worker.logger.Debugln("Caching robot rules")
+	worker.cacheRobotRules(cacheKey, robotRules, &accErr)
 
-	if ok, err := mutex.Unlock(); !ok || err != nil {
-		return robotRules, false, err
-	}
+	// if ok, err := mutex.Unlock(); !ok || err != nil {
+	// 	return robotRules, err
+	// }
 
-	return robotRules, robotRulesStale, conditionalError(&accErr)
+	return robotRules, conditionalError(&accErr)
 }
 
-func (worker *Worker) tryGetFromDB(domainString string, accErr *RobotRulesError) (*RobotRules, bool) {
-	stale := true
+func (worker *Worker) tryGetFromDB(domainString string, accErr *RobotRulesError) *RobotRules {
 	queries := database.New(worker.dbPool)
 	robotRulesQuery, err := queries.GetRobotRules(worker.ctx, domainString)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, stale // Not an error, just not found
-	}
-	if err != nil {
-		accErr.DBError = fmt.Errorf("db query: %w", err)
-		return nil, stale
-	}
 
-	if time.Since(robotRulesQuery.FetchedAt.Time) < time.Hour*24 {
-		stale = false
+	if err != nil {
+		// Not an error, just not found
+		if !errors.Is(err, pgx.ErrNoRows) {
+			accErr.DBError = fmt.Errorf("db query: %w", err)
+		}
+		return nil
 	}
 
 	var robotRules RobotRules
 	if err := json.Unmarshal(robotRulesQuery.RulesJson, &robotRules); err != nil {
 		accErr.DBError = fmt.Errorf("unmarshal db rules: %w", err)
-		return nil, stale
+		return nil
 	}
 
-	return &robotRules, stale
+	if time.Since(robotRulesQuery.FetchedAt.Time) < time.Hour*24 {
+		return &robotRules
+	}
+
+	return nil
 }
 
-func (worker *Worker) tryGetFromWeb(domainString string, accErr *RobotRulesError) *RobotRules {
-	robotRules, err := fetchRobotRulesFromWeb(domainString, worker.httpClient)
+func (worker *Worker) tryGetFromWeb(domain string, accErr *RobotRulesError) *RobotRules {
+	robotRules, err := fetchRobotRulesFromWeb(domain, worker.httpClient)
 	if err != nil {
 		accErr.WebError = fmt.Errorf("web fetch: %w", err)
 		return nil
@@ -480,25 +522,21 @@ func (worker *Worker) tryGetFromWeb(domainString string, accErr *RobotRulesError
 	return robotRules
 }
 
-func (worker *Worker) tryCacheRules(domainString string, robotRules *RobotRules, accErr *RobotRulesError) {
-	robotRulesJson, err := json.Marshal(robotRules)
-	if err != nil {
-		accErr.CacheError = fmt.Errorf("marshal for cache: %w", err)
-		return
-	}
-
-	if err := worker.redisClient.Set(worker.ctx, "robots:"+domainString, robotRulesJson, time.Hour*24).Err(); err != nil {
+func (worker *Worker) cacheRobotRules(cacheKey string, robotRules *RobotRules, accErr *RobotRulesError) {
+	if err := worker.redisClient.Set(worker.ctx, cacheKey, robotRules, time.Hour*24).Err(); err != nil {
 		accErr.CacheError = fmt.Errorf("cache set: %w", err)
 	}
 }
 
-func (worker *Worker) removeRobotRulesFromCache(domain string, robotRulesStale bool) error {
-	if robotRulesStale {
-		worker.logger.Debugln("removing robot rules from cache", domain)
-		if err := worker.redisClient.Del(worker.ctx, "robots:"+domain).Err(); err != nil {
-			return err
-		}
+func (worker *Worker) storeRobotRules(domain string, robotRulesJson []byte) error {
+	queries := database.New(worker.dbPool)
+	if err := queries.CreateRobotRules(worker.ctx, database.CreateRobotRulesParams{
+		Domain:    domain,
+		RulesJson: robotRulesJson,
+	}); err != nil {
+		return fmt.Errorf("couldn't store robot rules: %w", err)
 	}
+
 	return nil
 }
 
@@ -507,12 +545,11 @@ func (worker *Worker) isStale(url string) (bool, error) {
 
 	queries := database.New(worker.dbPool)
 	urlData, err := queries.GetUrl(worker.ctx, url)
-	if err == nil && time.Since(urlData.FetchedAt.Time) < time.Hour*24 {
-		stale = false
-	}
-
 	if err != nil && err != pgx.ErrNoRows {
 		return stale, err
+	}
+	if err == nil && time.Since(urlData.FetchedAt.Time) < time.Hour*24 {
+		stale = false
 	}
 
 	return stale, nil

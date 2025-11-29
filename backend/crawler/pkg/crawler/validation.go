@@ -3,46 +3,45 @@ package crawler
 import (
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strings"
 )
 
-func validateUrl(parentUrl, dirtyUrl string) (string, error) {
-	parsedParentUrl, err := url.Parse(parentUrl)
-	if err != nil {
-		return "", fmt.Errorf("invalid parent URL %s: %w", parentUrl, err)
+func normalizeURL(parentUrl, newUrl string) (string, string, error) {
+	pUrl, err := url.Parse(parentUrl)
+	if err != nil && parentUrl != "" {
+		return "", "", fmt.Errorf("could not parse parent URL [%w]", err)
 	}
 
-	parsedDirtyUrl, err := url.Parse(dirtyUrl)
+	nUrl, err := url.Parse(newUrl)
 	if err != nil {
-		return "", fmt.Errorf("invalid URL %s: %w", dirtyUrl, err)
-	}
-
-	// If the URL is absolute, return it as is
-	if parsedDirtyUrl.IsAbs() {
-		return parsedDirtyUrl.String(), nil
+		return "", "", fmt.Errorf("could not parse new URL [%w]", err)
 	}
 
 	// If the URL is relative, resolve it against the parent URL
-	parsedDirtyUrl = parsedParentUrl.ResolveReference(parsedDirtyUrl)
+	nUrl = pUrl.ResolveReference(nUrl)
 
-	// Validate the resolved URL
-	if parsedDirtyUrl.Scheme == "" || parsedDirtyUrl.Host == "" {
-		return "", fmt.Errorf("resolved URL %s is invalid", parsedDirtyUrl.String())
+	if nUrl.Scheme != "https" && nUrl.Scheme != "http" {
+		return "", "", fmt.Errorf("url has invalid 'Scheme'")
 	}
 
-	// Check if the URL is valid and well-formed
-	if parsedDirtyUrl.Scheme != "http" && parsedDirtyUrl.Scheme != "https" {
-		return "", fmt.Errorf("URL %s must use http or https scheme", parsedDirtyUrl.String())
+	if nUrl.Host == "" {
+		return "", "", fmt.Errorf("url has no 'Host'")
 	}
 
-	// Ensure the URL leads to only web pages or images
-	if parsedDirtyUrl.Path != "" && strings.HasSuffix(parsedDirtyUrl.Path, "") {
+	normalizedURL := nUrl.Scheme + "://" + nUrl.Host
+
+	ext := ""
+	if nUrl.Path != "" {
+		trimmedPath := strings.TrimSuffix(nUrl.Path, "/")
+		ext = filepath.Ext(nUrl.Path)
+		normalizedURL += trimmedPath
 	}
 
-	return parsedDirtyUrl.String(), nil
+	return normalizedURL, ext, nil
 }
 
-func isUrlOfAllowedResourceType(urlString string) (bool, error) {
+func isUrlOfAllowedResourceType(ext string) bool {
 	commonWebAndImgExtensions := []string{
 		".html", ".htm", ".php", ".asp", ".aspx", ".jsp",
 		".txt",
@@ -51,13 +50,13 @@ func isUrlOfAllowedResourceType(urlString string) (bool, error) {
 	// 	".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp",
 	// ".bmp", ".tiff", ".ico",
 
-	for _, ext := range commonWebAndImgExtensions {
-		if strings.HasSuffix(urlString, ext) {
-			return true, nil
+	for _, allowedExt := range commonWebAndImgExtensions {
+		if ext == allowedExt {
+			return true
 		}
 	}
 
-	return false, nil
+	return false
 }
 
 func extractDomainFromUrl(urlString string) (string, error) {

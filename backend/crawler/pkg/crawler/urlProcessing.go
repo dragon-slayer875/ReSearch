@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/html"
 )
 
@@ -18,7 +18,7 @@ var (
 	errNotValidResource = fmt.Errorf("not a valid web page")
 )
 
-func (worker *Worker) ProcessURL(url, domain string) (*[]string, []byte, error) {
+func (worker *Worker) crawlUrl(url, domain string) (*[]string, []byte, error) {
 	allowedResourceType := false
 
 	resp, err := worker.httpClient.Get(url)
@@ -28,7 +28,7 @@ func (worker *Worker) ProcessURL(url, domain string) (*[]string, []byte, error) 
 	defer resp.Body.Close()
 
 	if err := worker.redisClient.HSet(worker.ctx, "crawl:domain_delays", domain, time.Now().Unix()).Err(); err != nil {
-		return nil, nil, fmt.Errorf("failed to update domain delay for %s: %w", domain, err)
+		return nil, nil, fmt.Errorf("failed to update domain delay: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -106,24 +106,17 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 			if token.Data == "a" {
 				for _, attr := range token.Attr {
 					if attr.Key == "href" {
-						validatedUrl, err := validateUrl(baseURL, attr.Val)
+						normalizedURL, ext, err := normalizeURL(baseURL, attr.Val)
 						if err != nil {
-							worker.logger.Errorln("Url validation error:", err)
+							worker.logger.Errorln("Url normailzation error:", err)
 							continue
 						}
 
-						isAllowed, err := isUrlOfAllowedResourceType(validatedUrl)
-						if err != nil || !isAllowed {
-							if err != nil {
-								worker.logger.Errorln("Url validation error:", err)
+						if ext != "" {
+							isAllowed := isUrlOfAllowedResourceType(normalizedURL)
+							if !isAllowed {
+								continue
 							}
-							continue
-						}
-
-						normalizedURL, err := normalizeURL(validatedUrl)
-						if err != nil {
-							worker.logger.Errorln("Url normalization error:", err)
-							continue
 						}
 
 						if _, exists := uniqueUrls[normalizedURL]; exists || normalizedURL == baseURL {
@@ -132,7 +125,17 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 
 						uniqueUrls[normalizedURL] = struct{}{}
 						outlinks = append(outlinks, normalizedURL)
-						pipe.ZIncrBy(worker.ctx, queue.PendingQueue, 1, normalizedURL)
+						domain, err := extractDomainFromUrl(normalizedURL)
+						if err != nil {
+							worker.logger.Errorln(err)
+							continue
+						}
+						pipe.ZAddNX(worker.ctx, queue.DomainPendingQueue, redis.Z{
+							Member: domain,
+							Score:  float64(time.Now().Unix()),
+						})
+						pipe.LPush(worker.ctx, "crawl_queue:"+domain, normalizedURL)
+						worker.logger.Debugln("Piped URL", normalizedURL)
 
 						break
 					}
@@ -140,29 +143,4 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 			}
 		}
 	}
-}
-
-func normalizeURL(rawURL string) (string, error) {
-	u, err := url.Parse(rawURL)
-
-	if err != nil {
-		return "", fmt.Errorf("could not parse raw URL [%w]", err)
-	}
-
-	if u.Scheme != "https" && u.Scheme != "http" {
-		return "", fmt.Errorf("url has invalid field 'Scheme'")
-	}
-
-	if u.Host == "" {
-		return "", fmt.Errorf("url has no field 'Host'")
-	}
-
-	normalizedURL := u.Scheme + "://" + u.Host
-
-	if u.Path != "" {
-		trimmedPath := strings.TrimSuffix(u.Path, "/")
-		normalizedURL += trimmedPath
-	}
-
-	return normalizedURL, nil
 }

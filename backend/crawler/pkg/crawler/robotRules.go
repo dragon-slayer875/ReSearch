@@ -141,16 +141,16 @@ func fetchRobotRulesFromWeb(domainString string, httpClient *http.Client) (*Robo
 	return robotRules, nil
 }
 
-func (robotRules *RobotRules) isPolite(domainString string, redisClient *redis.Client) bool {
+func (robotRules *RobotRules) isPolite(domainString string, redisClient *redis.Client) (bool, error) {
 	lastCrawlTime, err := redisClient.HGet(context.Background(), "crawl:domain_delays", domainString).Int64()
 	if err != nil {
-		return true
+		return true, err
 	}
 
 	minDelay := time.Duration(robotRules.CrawlDelay) * time.Second
 	timeSinceLastCrawl := time.Since(time.Unix(lastCrawlTime, 0))
 
-	return timeSinceLastCrawl >= minDelay
+	return timeSinceLastCrawl >= minDelay, nil
 }
 
 func (robotRules *RobotRules) isAllowed(url string) bool {
