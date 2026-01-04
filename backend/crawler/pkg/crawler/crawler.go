@@ -441,91 +441,63 @@ func (worker *Worker) updateStorage(url string, links *[]string) (int64, error) 
 }
 
 func (worker *Worker) GetRobotRules(domain string) (*RobotRules, error) {
-	var accErr RobotRulesError
-
 	cacheKey := "robots:" + domain
 
-	worker.logger.Debugln("Getting Robot rules from cache")
+	worker.logger.Debugln("Getting robot rules")
 
-	robotRulesJson, err := worker.redisClient.Get(worker.ctx, cacheKey).Result()
+	cacheResult, err := worker.redisClient.Get(worker.ctx, cacheKey).Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
-		accErr.CacheError = fmt.Errorf("cache get error: %w", err)
+		return nil, err
 	}
 
-	if robotRules := parseFromCache(robotRulesJson, &accErr); robotRules != nil {
-		return robotRules, conditionalError(&accErr)
+	robotRulesJsonBytes := []byte(cacheResult)
+
+	robotRules := worker.parseRobotRules(robotRulesJsonBytes)
+	if robotRules != nil {
+		return robotRules, nil
 	}
 
-	worker.logger.Debugln("Robot rules cache miss")
+	worker.logger.Debugln("Robot rules cache miss, getting from DB")
 
-	worker.logger.Debugln("Getting Robot rules from DB")
+	queries := database.New(worker.dbPool)
 
-	robotRules := worker.tryGetFromDB(domain, &accErr)
-	if robotRules == nil {
-		worker.logger.Debugln("Robot rules DB miss, Getting Robot rules from web")
-		robotRules = worker.tryGetFromWeb(domain, &accErr)
-		if robotRules == nil {
-			robotRules = defaultRobotRules()
+	robotRulesQuery, err := queries.GetRobotRules(worker.ctx, domain)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
 		}
+	}
 
-		robotRulesJson, err := json.Marshal(robotRules)
+	robotRules = worker.parseRobotRules(robotRulesQuery.RulesJson)
+	if robotRules == nil {
+		worker.logger.Debugln("Robot rules DB miss, getting robot rules from web")
+		robotRules, err = worker.fetchRobotRulesFromWeb(domain)
 		if err != nil {
 			return nil, err
 		}
+	}
 
-		if err = worker.storeRobotRules(domain, robotRulesJson); err != nil {
-			return nil, err
-		}
+	if robotRules == nil {
+		worker.logger.Debugln("Robot rules not found, using default rules")
+		robotRules = defaultRobotRules()
+	}
+
+	robotRulesJsonBytes, err = json.Marshal(robotRules)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = worker.storeRobotRules(domain, robotRulesJsonBytes); err != nil {
+		return nil, err
 	}
 
 	worker.logger.Debugln("Caching robot rules")
-	worker.cacheRobotRules(cacheKey, robotRules, &accErr)
 
-	// if ok, err := mutex.Unlock(); !ok || err != nil {
-	// 	return robotRules, err
-	// }
-
-	return robotRules, conditionalError(&accErr)
-}
-
-func (worker *Worker) tryGetFromDB(domainString string, accErr *RobotRulesError) *RobotRules {
-	queries := database.New(worker.dbPool)
-	robotRulesQuery, err := queries.GetRobotRules(worker.ctx, domainString)
-
-	if err != nil {
-		// Not an error, just not found
-		if !errors.Is(err, pgx.ErrNoRows) {
-			accErr.DBError = fmt.Errorf("db query: %w", err)
-		}
-		return nil
-	}
-
-	var robotRules RobotRules
-	if err := json.Unmarshal(robotRulesQuery.RulesJson, &robotRules); err != nil {
-		accErr.DBError = fmt.Errorf("unmarshal db rules: %w", err)
-		return nil
-	}
-
-	if time.Since(robotRulesQuery.FetchedAt.Time) < time.Hour*24 {
-		return &robotRules
-	}
-
-	return nil
-}
-
-func (worker *Worker) tryGetFromWeb(domain string, accErr *RobotRulesError) *RobotRules {
-	robotRules, err := fetchRobotRulesFromWeb(domain, worker.httpClient)
-	if err != nil {
-		accErr.WebError = fmt.Errorf("web fetch: %w", err)
-		return nil
-	}
-	return robotRules
-}
-
-func (worker *Worker) cacheRobotRules(cacheKey string, robotRules *RobotRules, accErr *RobotRulesError) {
 	if err := worker.redisClient.Set(worker.ctx, cacheKey, robotRules, time.Hour*24).Err(); err != nil {
-		accErr.CacheError = fmt.Errorf("cache set: %w", err)
+		return nil, err
 	}
+
+	return robotRules, nil
 }
 
 func (worker *Worker) storeRobotRules(domain string, robotRulesJson []byte) error {
@@ -534,7 +506,7 @@ func (worker *Worker) storeRobotRules(domain string, robotRulesJson []byte) erro
 		Domain:    domain,
 		RulesJson: robotRulesJson,
 	}); err != nil {
-		return fmt.Errorf("couldn't store robot rules: %w", err)
+		return err
 	}
 
 	return nil
@@ -553,17 +525,4 @@ func (worker *Worker) isStale(url string) (bool, error) {
 	}
 
 	return stale, nil
-}
-
-func parseFromCache(robotRulesJson string, accErr *RobotRulesError) *RobotRules {
-	var robotRules RobotRules
-	if robotRulesJson == "" {
-		return nil
-	}
-	if err := json.Unmarshal([]byte(robotRulesJson), &robotRules); err != nil {
-		accErr.CacheError = fmt.Errorf("unmarshal cached rules: %w", err)
-		return nil
-	}
-
-	return &robotRules
 }

@@ -3,6 +3,7 @@ package crawler
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -19,43 +20,6 @@ type RobotRules struct {
 	Sitemaps   []string `json:"sitemaps"`
 }
 
-type RobotRulesError struct {
-	CacheError error
-	DBError    error
-	WebError   error
-	LockError  error
-}
-
-var rulesLockedError = fmt.Errorf("rules lock already held by another worker")
-
-func (e *RobotRulesError) Error() string {
-	var parts []string
-	if e.CacheError != nil {
-		parts = append(parts, fmt.Sprintf("cache: %v", e.CacheError))
-	}
-	if e.DBError != nil {
-		parts = append(parts, fmt.Sprintf("db: %v", e.DBError))
-	}
-	if e.WebError != nil {
-		parts = append(parts, fmt.Sprintf("web: %v", e.WebError))
-	}
-	if e.LockError != nil {
-		parts = append(parts, fmt.Sprintf("lock: %v", e.LockError))
-	}
-	return "robot rules errors: " + strings.Join(parts, ", ")
-}
-
-func (e *RobotRulesError) HasErrors() bool {
-	return e.CacheError != nil || e.DBError != nil || e.WebError != nil || e.LockError != nil
-}
-
-func conditionalError(accErr *RobotRulesError) error {
-	if accErr.HasErrors() {
-		return accErr
-	}
-	return nil
-}
-
 func defaultRobotRules() *RobotRules {
 	return &RobotRules{
 		Allow:      []string{},
@@ -65,14 +29,14 @@ func defaultRobotRules() *RobotRules {
 	}
 }
 
-func fetchRobotRulesFromWeb(domainString string, httpClient *http.Client) (*RobotRules, error) {
-	resp, err := httpClient.Get(fmt.Sprintf("http://%s/robots.txt", domainString))
+func (worker *Worker) fetchRobotRulesFromWeb(domain string) (*RobotRules, error) {
+	resp, err := worker.httpClient.Get(fmt.Sprintf("http://%s/robots.txt", domain))
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch robots.txt for %s: %w", domainString, err)
+		return nil, fmt.Errorf("failed to fetch robots.txt for %s: %w", domain, err)
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusTeapot {
-		return nil, fmt.Errorf("robots.txt not found for %s: %s", domainString, resp.Status)
+		return nil, fmt.Errorf("robots.txt not found for %s: %s", domain, resp.Status)
 	}
 
 	robotTxtBody := resp.Body
@@ -101,7 +65,7 @@ func fetchRobotRulesFromWeb(domainString string, httpClient *http.Client) (*Robo
 
 			if strings.HasPrefix(strings.ToLower(line), "allow:") {
 				allowPath := strings.TrimSpace(strings.TrimPrefix(line, "Allow:"))
-				allowPath = fmt.Sprintf("http://%s%s", domainString, allowPath)
+				allowPath = fmt.Sprintf("http://%s%s", domain, allowPath)
 				if allowPath != "" {
 					robotRules.Allow = append(robotRules.Allow, allowPath)
 				}
@@ -109,7 +73,7 @@ func fetchRobotRulesFromWeb(domainString string, httpClient *http.Client) (*Robo
 
 			if strings.HasPrefix(strings.ToLower(line), "disallow:") {
 				disallowPath := strings.TrimSpace(strings.TrimPrefix(line, "Disallow:"))
-				disallowPath = fmt.Sprintf("http://%s%s", domainString, disallowPath)
+				disallowPath = fmt.Sprintf("http://%s%s", domain, disallowPath)
 				if disallowPath != "" {
 					robotRules.Disallow = append(robotRules.Disallow, disallowPath)
 				}
@@ -167,4 +131,19 @@ func (robotRules *RobotRules) isAllowed(url string) bool {
 	}
 
 	return true
+}
+
+func (worker *Worker) parseRobotRules(robotRulesJson []byte) *RobotRules {
+	var robotRules RobotRules
+
+	if len(robotRulesJson) == 0 {
+		return nil
+	}
+
+	if err := json.Unmarshal(robotRulesJson, &robotRules); err != nil {
+		worker.logger.Warnln("Robot rules parsing failure:", err)
+		return nil
+	}
+
+	return &robotRules
 }
