@@ -3,6 +3,7 @@ package crawler
 import (
 	"bufio"
 	"context"
+	"crawler/pkg/utils"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -30,19 +31,25 @@ func defaultRobotRules() *RobotRules {
 }
 
 func (worker *Worker) fetchRobotRulesFromWeb(domain string) (*RobotRules, error) {
-	resp, err := worker.httpClient.Get(fmt.Sprintf("http://%s/robots.txt", domain))
+
+	var resp *http.Response
+	err := worker.retryer.Do(worker.ctx, func() error {
+		var tryErr error
+		resp, tryErr = worker.httpClient.Get(fmt.Sprintf("http://%s/robots.txt", domain))
+
+		return tryErr
+	}, utils.IsRetryableNetworkError)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch robots.txt for %s: %w", domain, err)
+		return nil, err
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusTeapot {
 		return nil, fmt.Errorf("robots.txt not found for %s: %s", domain, resp.Status)
 	}
 
-	robotTxtBody := resp.Body
-	defer robotTxtBody.Close()
+	defer resp.Body.Close()
 
-	scanner := bufio.NewScanner(robotTxtBody)
+	scanner := bufio.NewScanner(resp.Body)
 	foundUserAgentAll := false
 	robotRules := defaultRobotRules()
 

@@ -3,6 +3,7 @@ package crawler
 import (
 	"bytes"
 	"crawler/pkg/queue"
+	"crawler/pkg/utils"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,7 +22,13 @@ var (
 func (worker *Worker) crawlUrl(url, domain string) (*[]string, []byte, error) {
 	allowedResourceType := false
 
-	resp, err := worker.httpClient.Get(url)
+	var resp *http.Response
+	err := worker.retryer.Do(worker.ctx, func() error {
+		var tryErr error
+		resp, tryErr = worker.httpClient.Get(url)
+
+		return tryErr
+	}, utils.IsRetryableNetworkError)
 	if err != nil {
 		return nil, nil, err
 	}

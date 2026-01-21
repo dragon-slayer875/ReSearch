@@ -5,6 +5,7 @@ import (
 	"crawler/pkg/config"
 	"crawler/pkg/crawler"
 	"crawler/pkg/queue"
+	"crawler/pkg/retry"
 	"flag"
 	"net/http"
 	"os"
@@ -52,7 +53,7 @@ func main() {
 
 	defer logger.Sync()
 
-	sugaredLogger := logger.Sugar().Named("Crawler")
+	sugaredLogger := logger.Sugar()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -68,12 +69,21 @@ func main() {
 	}
 	sugaredLogger.Debugln(".env loaded")
 
+	retryer, err := retry.New(
+		cfg.Retryer.MaxRetries,
+		cfg.Retryer.InitialBackoff,
+		cfg.Retryer.MaxBackoff,
+		cfg.Retryer.BackoffMultiplier,
+		sugaredLogger.Named("Retryer"))
+	if err != nil {
+		sugaredLogger.Fatalln("Failed to initialize retryer", err)
+	}
+
 	redisClient, err := queue.NewRedisClient(os.Getenv("REDIS_URL"))
 	if err != nil {
 		sugaredLogger.Fatalln(err)
 	}
 	sugaredLogger.Debugln("Redis client initialized")
-
 	defer redisClient.Close()
 
 	dbPool, err := pgxpool.New(ctx, os.Getenv("POSTGRES_URL"))
@@ -81,7 +91,6 @@ func main() {
 		sugaredLogger.Fatalln("Failed to connect to PostgreSQL", err)
 	}
 	sugaredLogger.Debugln("PostgreSQL client initialized")
-
 	defer dbPool.Close()
 
 	transport := &http.Transport{
@@ -110,7 +119,7 @@ func main() {
 		cancel()
 	}()
 
-	Crawler := crawler.NewCrawler(sugaredLogger, cfg.Crawler.WorkerCount, redisClient, dbPool, httpClient, ctx)
+	Crawler := crawler.NewCrawler(sugaredLogger, cfg.Crawler.WorkerCount, redisClient, dbPool, httpClient, ctx, retryer)
 
 	if *seedPath != "" {
 		Crawler.PublishSeedUrls(*seedPath)

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crawler/pkg/queue"
+	"crawler/pkg/retry"
 	"crawler/pkg/storage/database"
 	"encoding/json"
 	"errors"
@@ -33,6 +34,7 @@ type Crawler struct {
 	dbPool      *pgxpool.Pool
 	httpClient  *http.Client
 	ctx         context.Context
+	retryer     *retry.Retryer
 }
 
 type Worker struct {
@@ -41,9 +43,10 @@ type Worker struct {
 	dbPool      *pgxpool.Pool
 	httpClient  *http.Client
 	ctx         context.Context
+	retryer     *retry.Retryer
 }
 
-func NewCrawler(logger *zap.SugaredLogger, workerCount int, redisClient *redis.Client, dbPool *pgxpool.Pool, httpClient *http.Client, ctx context.Context) *Crawler {
+func NewCrawler(logger *zap.SugaredLogger, workerCount int, redisClient *redis.Client, dbPool *pgxpool.Pool, httpClient *http.Client, ctx context.Context, retryer *retry.Retryer) *Crawler {
 	return &Crawler{
 		logger,
 		workerCount,
@@ -51,16 +54,18 @@ func NewCrawler(logger *zap.SugaredLogger, workerCount int, redisClient *redis.C
 		dbPool,
 		httpClient,
 		ctx,
+		retryer,
 	}
 }
 
-func NewWorker(logger *zap.SugaredLogger, redisClient *redis.Client, dbPool *pgxpool.Pool, httpClient *http.Client, ctx context.Context) *Worker {
+func NewWorker(logger *zap.SugaredLogger, redisClient *redis.Client, dbPool *pgxpool.Pool, httpClient *http.Client, ctx context.Context, retryer *retry.Retryer) *Worker {
 	return &Worker{
 		logger,
 		redisClient,
 		dbPool,
 		httpClient,
 		ctx,
+		retryer,
 	}
 }
 
@@ -72,7 +77,20 @@ func (crawler *Crawler) Start() {
 
 		go func() {
 			defer wg.Done()
-			worker := NewWorker(crawler.logger.Named(fmt.Sprintf("Worker %d", i)), crawler.redisClient, crawler.dbPool, crawler.httpClient, crawler.ctx)
+
+			workerLogger := crawler.logger.Named(fmt.Sprintf("Worker %d", i))
+
+			retryer, err := retry.New(
+				crawler.retryer.MaxRetries,
+				crawler.retryer.InitialBackoff.String(),
+				crawler.retryer.MaxBackoff.String(),
+				crawler.retryer.BackoffMultiplier,
+				workerLogger.Named("Retryer"))
+			if err != nil {
+				crawler.logger.Fatalln("Failed to initialize retryer", i, err)
+			}
+
+			worker := NewWorker(workerLogger, crawler.redisClient, crawler.dbPool, crawler.httpClient, crawler.ctx, retryer)
 			worker.logger.Debugln(fmt.Sprintf("Worker %d initialized", i))
 			worker.work()
 		}()
@@ -152,6 +170,7 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 			crawler.logger.Errorln(err)
 			continue
 		}
+
 		pipe.ZAddNX(crawler.ctx, queue.DomainPendingQueue, redis.Z{
 			Member: domain,
 			Score:  float64(time.Now().Unix()),
@@ -217,7 +236,7 @@ func (worker *Worker) processDomain(domain string) error {
 
 	}()
 
-	robotRules, err := worker.GetRobotRules(domain)
+	robotRules, err := worker.getRobotRules(domain)
 	if err != nil {
 		if robotRules == nil {
 			return err
@@ -440,7 +459,7 @@ func (worker *Worker) updateStorage(url string, links *[]string) (int64, error) 
 	return crawledUrlId, tx.Commit(worker.ctx)
 }
 
-func (worker *Worker) GetRobotRules(domain string) (*RobotRules, error) {
+func (worker *Worker) getRobotRules(domain string) (*RobotRules, error) {
 	cacheKey := "robots:" + domain
 
 	worker.logger.Debugln("Getting robot rules")
