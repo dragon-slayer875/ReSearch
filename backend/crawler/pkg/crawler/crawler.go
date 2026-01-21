@@ -6,6 +6,7 @@ import (
 	"crawler/pkg/queue"
 	"crawler/pkg/retry"
 	"crawler/pkg/storage/database"
+	"crawler/pkg/utils"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -152,23 +153,17 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 
 	for scanner.Scan() {
 		url := scanner.Text()
-		normalizedURL, ext, err := normalizeURL("", url)
+		normalizedURL, domain, ext, err := utils.NormalizeURL("", url)
 		if err != nil {
 			crawler.logger.Warnln(err)
 			continue
 		}
 
 		if ext != "" {
-			isAllowed := isUrlOfAllowedResourceType(normalizedURL)
+			isAllowed := utils.IsUrlOfAllowedResourceType(normalizedURL)
 			if !isAllowed {
 				continue
 			}
-		}
-
-		domain, err := extractDomainFromUrl(normalizedURL)
-		if err != nil {
-			crawler.logger.Errorln(err)
-			continue
 		}
 
 		pipe.ZAddNX(crawler.ctx, queue.DomainPendingQueue, redis.Z{

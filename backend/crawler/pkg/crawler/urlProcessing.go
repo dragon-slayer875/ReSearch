@@ -113,14 +113,14 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 			if token.Data == "a" {
 				for _, attr := range token.Attr {
 					if attr.Key == "href" {
-						normalizedURL, ext, err := normalizeURL(baseURL, attr.Val)
+						normalizedURL, domain, ext, err := utils.NormalizeURL(baseURL, attr.Val)
 						if err != nil {
 							worker.logger.Errorln("Url normailzation error:", err)
 							continue
 						}
 
 						if ext != "" {
-							isAllowed := isUrlOfAllowedResourceType(normalizedURL)
+							isAllowed := utils.IsUrlOfAllowedResourceType(normalizedURL)
 							if !isAllowed {
 								continue
 							}
@@ -132,11 +132,7 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 
 						uniqueUrls[normalizedURL] = struct{}{}
 						outlinks = append(outlinks, normalizedURL)
-						domain, err := extractDomainFromUrl(normalizedURL)
-						if err != nil {
-							worker.logger.Errorln(err)
-							continue
-						}
+
 						pipe.ZAddNX(worker.ctx, queue.DomainPendingQueue, redis.Z{
 							Member: domain,
 							Score:  float64(time.Now().Unix()),
