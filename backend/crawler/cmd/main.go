@@ -128,6 +128,5 @@ func main() {
 
 	sugaredLogger.Infoln("Starting...")
 	Crawler.Start()
-	sugaredLogger.Infoln("Exiting.")
-
+	sugaredLogger.Infoln("Exiting...")
 }

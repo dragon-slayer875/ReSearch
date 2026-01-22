@@ -33,7 +33,7 @@ func defaultRobotRules() *RobotRules {
 func (worker *Worker) fetchRobotRulesFromWeb(domain string) (*RobotRules, error) {
 
 	var resp *http.Response
-	err := worker.retryer.Do(worker.ctx, func() error {
+	err := worker.retryer.Do(worker.workerCtx, func() error {
 		var tryErr error
 		resp, tryErr = worker.httpClient.Get(fmt.Sprintf("http://%s/robots.txt", domain))
 

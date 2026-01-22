@@ -23,7 +23,7 @@ func (worker *Worker) crawlUrl(url, domain string) (*[]string, []byte, error) {
 	allowedResourceType := false
 
 	var resp *http.Response
-	err := worker.retryer.Do(worker.ctx, func() error {
+	err := worker.retryer.Do(worker.workerCtx, func() error {
 		var tryErr error
 		resp, tryErr = worker.httpClient.Get(url)
 
@@ -34,7 +34,7 @@ func (worker *Worker) crawlUrl(url, domain string) (*[]string, []byte, error) {
 	}
 	defer resp.Body.Close()
 
-	if err := worker.redisClient.HSet(worker.ctx, "crawl:domain_delays", domain, time.Now().Unix()).Err(); err != nil {
+	if err := worker.redisClient.HSet(worker.workerCtx, "crawl:domain_delays", domain, time.Now().Unix()).Err(); err != nil {
 		return nil, nil, fmt.Errorf("failed to update domain delay: %w", err)
 	}
 
@@ -91,7 +91,7 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 				return nil, err
 			}
 
-			if _, err := pipe.Exec(worker.ctx); err != nil {
+			if _, err := pipe.Exec(worker.workerCtx); err != nil {
 				return nil, err
 			}
 
@@ -133,11 +133,11 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 						uniqueUrls[normalizedURL] = struct{}{}
 						outlinks = append(outlinks, normalizedURL)
 
-						pipe.ZAddNX(worker.ctx, queue.DomainPendingQueue, redis.Z{
+						pipe.ZAddNX(worker.workerCtx, queue.DomainPendingQueue, redis.Z{
 							Member: domain,
 							Score:  float64(time.Now().Unix()),
 						})
-						pipe.LPush(worker.ctx, "crawl_queue:"+domain, normalizedURL)
+						pipe.LPush(worker.workerCtx, "crawl_queue:"+domain, normalizedURL)
 						worker.logger.Debugln("Piped URL", normalizedURL)
 
 						break

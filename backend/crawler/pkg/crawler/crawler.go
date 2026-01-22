@@ -43,7 +43,8 @@ type Worker struct {
 	redisClient *redis.Client
 	dbPool      *pgxpool.Pool
 	httpClient  *http.Client
-	ctx         context.Context
+	crawlerCtx  context.Context
+	workerCtx   context.Context
 	retryer     *retry.Retryer
 }
 
@@ -59,13 +60,14 @@ func NewCrawler(logger *zap.SugaredLogger, workerCount int, redisClient *redis.C
 	}
 }
 
-func NewWorker(logger *zap.SugaredLogger, redisClient *redis.Client, dbPool *pgxpool.Pool, httpClient *http.Client, ctx context.Context, retryer *retry.Retryer) *Worker {
+func NewWorker(logger *zap.SugaredLogger, redisClient *redis.Client, dbPool *pgxpool.Pool, httpClient *http.Client, crawlerCtx context.Context, workerCtx context.Context, retryer *retry.Retryer) *Worker {
 	return &Worker{
 		logger,
 		redisClient,
 		dbPool,
 		httpClient,
-		ctx,
+		crawlerCtx,
+		workerCtx,
 		retryer,
 	}
 }
@@ -91,7 +93,7 @@ func (crawler *Crawler) Start() {
 				crawler.logger.Fatalln("Failed to initialize retryer", i, err)
 			}
 
-			worker := NewWorker(workerLogger, crawler.redisClient, crawler.dbPool, crawler.httpClient, crawler.ctx, retryer)
+			worker := NewWorker(workerLogger, crawler.redisClient, crawler.dbPool, crawler.httpClient, crawler.ctx, context.Background(), retryer)
 			worker.logger.Debugln(fmt.Sprintf("Worker %d initialized", i))
 			worker.work()
 		}()
@@ -152,6 +154,13 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
+		err := crawler.ctx.Err()
+		if err == context.Canceled {
+			break
+		} else if err != nil {
+			crawler.logger.Fatalln("Context error found, crawler shutting down. Err:", err)
+		}
+
 		url := scanner.Text()
 		normalizedURL, domain, ext, err := utils.NormalizeURL("", url)
 		if err != nil {
@@ -184,13 +193,22 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 func (worker *Worker) work() {
 	loggerWithoutDomain := worker.logger
 	for {
+		err := worker.crawlerCtx.Err()
+		if err == context.Canceled {
+			worker.logger.Infoln("Finished processing jobs, worker shutting down")
+			break
+		} else if err != nil {
+			worker.logger.Errorln("Context error found, worker shutting down. Err:", err)
+			break
+		}
+
 		domain, err := worker.getNextDomain()
 		if err != nil {
 			switch err {
 			case redis.Nil:
 				worker.logger.Infoln("No domains in queue")
 			default:
-				worker.logger.Errorln("Error getting URL from queue:", err)
+				worker.logger.Errorln("Error getting domain from queue:", err)
 			}
 			continue
 		}
@@ -228,7 +246,6 @@ func (worker *Worker) processDomain(domain string) error {
 		// if err := worker.redisClient.ZRem(worker.ctx, queue.DomainProcessingQueue, domain).Err(); err != nil {
 		// 	return err
 		// }
-
 	}()
 
 	robotRules, err := worker.getRobotRules(domain)
@@ -241,6 +258,13 @@ func (worker *Worker) processDomain(domain string) error {
 
 	loggerWithoutUrl := worker.logger
 	for {
+		err := worker.crawlerCtx.Err()
+		if err == context.Canceled {
+			break
+		} else if err != nil {
+			return err
+		}
+
 		url, err := worker.getNextUrlForDomain(domain)
 		if err == redis.Nil {
 			worker.logger.Infoln("Domain's URL queue is empty")
@@ -251,7 +275,7 @@ func (worker *Worker) processDomain(domain string) error {
 			continue
 		}
 
-		worker.logger = worker.logger.With("URL", url)
+		worker.logger = worker.logger.With("url", url)
 
 		err = worker.processUrl(url, domain, robotRules)
 		if err != nil {
@@ -310,7 +334,7 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 
 func (worker *Worker) discardJob(url string) error {
 	worker.logger.Infoln("Discarding job")
-	err := worker.redisClient.ZRem(worker.ctx, queue.UrlsProcessingQueue, url).Err()
+	err := worker.redisClient.ZRem(worker.workerCtx, queue.UrlsProcessingQueue, url).Err()
 
 	if err != nil {
 		return err
@@ -355,7 +379,7 @@ func (worker *Worker) updateQueuesAndStorage(url string, htmlContent *[]byte, li
 }
 
 func (worker *Worker) getNextDomain() (string, error) {
-	domainWithScore, err := worker.redisClient.BZPopMin(worker.ctx, time.Second*30, queue.DomainPendingQueue).Result()
+	domainWithScore, err := worker.redisClient.BZPopMin(worker.workerCtx, time.Second*30, queue.DomainPendingQueue).Result()
 	if err != nil {
 		return "", err
 	}
@@ -364,14 +388,14 @@ func (worker *Worker) getNextDomain() (string, error) {
 }
 
 func (worker *Worker) getNextUrlForDomain(domain string) (string, error) {
-	result, err := worker.redisClient.BRPop(worker.ctx, 30*time.Second, "crawl_queue:"+domain).Result()
+	result, err := worker.redisClient.BRPop(worker.workerCtx, 30*time.Second, "crawl_queue:"+domain).Result()
 	if err != nil {
 		return "", err
 	}
 
 	url := result[1]
 
-	err = worker.redisClient.ZAdd(worker.ctx, queue.UrlsProcessingQueue, redis.Z{
+	err = worker.redisClient.ZAdd(worker.workerCtx, queue.UrlsProcessingQueue, redis.Z{
 		Score:  float64(time.Now().Unix()),
 		Member: url,
 	}).Err()
@@ -397,11 +421,11 @@ func (worker *Worker) updateQueues(htmlContent *[]byte, url string, id int64) er
 	}
 
 	pipe := worker.redisClient.Pipeline()
-	pipe.Set(worker.ctx, url, payloadJSON, 0)
-	pipe.LPush(worker.ctx, queue.IndexPendingQueue, url)
-	pipe.ZRem(worker.ctx, queue.UrlsProcessingQueue, url)
+	pipe.Set(worker.workerCtx, url, payloadJSON, 0)
+	pipe.LPush(worker.workerCtx, queue.IndexPendingQueue, url)
+	pipe.ZRem(worker.workerCtx, queue.UrlsProcessingQueue, url)
 
-	_, err = pipe.Exec(worker.ctx)
+	_, err = pipe.Exec(worker.workerCtx)
 	if err != nil {
 		return fmt.Errorf("failed to update queues: %w", err)
 	}
@@ -410,24 +434,24 @@ func (worker *Worker) updateQueues(htmlContent *[]byte, url string, id int64) er
 }
 
 func (worker *Worker) updateStorage(url string, links *[]string) (int64, error) {
-	tx, err := worker.dbPool.Begin(worker.ctx)
+	tx, err := worker.dbPool.Begin(worker.workerCtx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	defer tx.Rollback(worker.ctx)
+	defer tx.Rollback(worker.workerCtx)
 
 	queries := &database.Queries{}
 	queriesWithTx := queries.WithTx(tx)
 
-	crawledUrlId, err := queriesWithTx.InsertCrawledUrl(worker.ctx, url)
+	crawledUrlId, err := queriesWithTx.InsertCrawledUrl(worker.workerCtx, url)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert URL into postgres: %w", err)
 	}
 
 	insertLinksBatch := make([]database.BatchInsertLinksParams, 0)
 	var batchErr error
-	urlInsertResults := queriesWithTx.InsertUrls(worker.ctx, *links)
+	urlInsertResults := queriesWithTx.InsertUrls(worker.workerCtx, *links)
 	urlInsertResults.QueryRow(func(idx int, id int64, err error) {
 		if err != nil {
 			batchErr = err
@@ -442,7 +466,7 @@ func (worker *Worker) updateStorage(url string, links *[]string) (int64, error) 
 		return 0, fmt.Errorf("failed to insert URL into postgres: %w", batchErr)
 	}
 
-	linkInsertResults := queriesWithTx.BatchInsertLinks(worker.ctx, insertLinksBatch)
+	linkInsertResults := queriesWithTx.BatchInsertLinks(worker.workerCtx, insertLinksBatch)
 	linkInsertResults.Exec(func(i int, err error) {
 		batchErr = err
 	})
@@ -451,7 +475,7 @@ func (worker *Worker) updateStorage(url string, links *[]string) (int64, error) 
 		return 0, fmt.Errorf("failed to insert link into postgres: %w", batchErr)
 	}
 
-	return crawledUrlId, tx.Commit(worker.ctx)
+	return crawledUrlId, tx.Commit(worker.workerCtx)
 }
 
 func (worker *Worker) getRobotRules(domain string) (*RobotRules, error) {
@@ -459,7 +483,7 @@ func (worker *Worker) getRobotRules(domain string) (*RobotRules, error) {
 
 	worker.logger.Debugln("Getting robot rules")
 
-	cacheResult, err := worker.redisClient.Get(worker.ctx, cacheKey).Result()
+	cacheResult, err := worker.redisClient.Get(worker.workerCtx, cacheKey).Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
 		return nil, err
 	}
@@ -475,7 +499,7 @@ func (worker *Worker) getRobotRules(domain string) (*RobotRules, error) {
 
 	queries := database.New(worker.dbPool)
 
-	robotRulesQuery, err := queries.GetRobotRules(worker.ctx, domain)
+	robotRulesQuery, err := queries.GetRobotRules(worker.workerCtx, domain)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
@@ -507,7 +531,7 @@ func (worker *Worker) getRobotRules(domain string) (*RobotRules, error) {
 
 	worker.logger.Debugln("Caching robot rules")
 
-	if err := worker.redisClient.Set(worker.ctx, cacheKey, robotRulesJsonBytes, time.Hour*24).Err(); err != nil {
+	if err := worker.redisClient.Set(worker.workerCtx, cacheKey, robotRulesJsonBytes, time.Hour*24).Err(); err != nil {
 		return nil, err
 	}
 
@@ -516,7 +540,7 @@ func (worker *Worker) getRobotRules(domain string) (*RobotRules, error) {
 
 func (worker *Worker) storeRobotRules(domain string, robotRulesJson []byte) error {
 	queries := database.New(worker.dbPool)
-	if err := queries.CreateRobotRules(worker.ctx, database.CreateRobotRulesParams{
+	if err := queries.CreateRobotRules(worker.workerCtx, database.CreateRobotRulesParams{
 		Domain:    domain,
 		RulesJson: robotRulesJson,
 	}); err != nil {
@@ -530,7 +554,7 @@ func (worker *Worker) isStale(url string) (bool, error) {
 	stale := true
 
 	queries := database.New(worker.dbPool)
-	urlData, err := queries.GetUrl(worker.ctx, url)
+	urlData, err := queries.GetUrl(worker.workerCtx, url)
 	if err != nil && err != pgx.ErrNoRows {
 		return stale, err
 	}
