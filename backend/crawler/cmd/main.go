@@ -56,6 +56,7 @@ func main() {
 	sugaredLogger := logger.Sugar()
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {

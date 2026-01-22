@@ -507,7 +507,7 @@ func (worker *Worker) getRobotRules(domain string) (*RobotRules, error) {
 
 	worker.logger.Debugln("Caching robot rules")
 
-	if err := worker.redisClient.Set(worker.ctx, cacheKey, robotRules, time.Hour*24).Err(); err != nil {
+	if err := worker.redisClient.Set(worker.ctx, cacheKey, robotRulesJsonBytes, time.Hour*24).Err(); err != nil {
 		return nil, err
 	}
 
