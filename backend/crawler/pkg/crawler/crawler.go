@@ -232,7 +232,7 @@ func (worker *Worker) processDomain(domain string) error {
 	rs := redsync.New(pool)
 
 	mutex := rs.NewMutex(domainLockKey)
-	redsync.WithExpiry(20 * time.Minute).Apply(mutex)
+	redsync.WithExpiry(15 * time.Minute).Apply(mutex)
 
 	if err := mutex.Lock(); err != nil {
 		return err
@@ -276,6 +276,14 @@ func (worker *Worker) processDomain(domain string) error {
 		}
 
 		worker.logger = worker.logger.With("url", url)
+
+		_, err = mutex.Extend()
+		if err != nil {
+			worker.logger.Errorln("Mutex expiry extension failed. Err:", err)
+			continue
+		}
+
+		worker.logger.Debugln("Mutex extended till:", mutex.Until())
 
 		err = worker.processUrl(url, domain, robotRules)
 		if err != nil {
