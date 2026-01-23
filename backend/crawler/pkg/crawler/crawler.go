@@ -257,12 +257,22 @@ func (worker *Worker) processDomain(domain string) error {
 	}
 
 	loggerWithoutUrl := worker.logger
+
 	for {
 		err := worker.crawlerCtx.Err()
-		if err == context.Canceled {
-			break
-		} else if err != nil {
-			return err
+		if err != nil {
+			if err := worker.redisClient.ZAddNX(worker.workerCtx, queue.DomainPendingQueue, redis.Z{
+				Member: domain,
+				Score:  float64(time.Now().Unix()),
+			}).Err(); err != nil {
+				return fmt.Errorf("failed to requeue domain, error: %w", err)
+			}
+
+			if err == context.Canceled {
+				break
+			} else {
+				return err
+			}
 		}
 
 		url, err := worker.getNextUrlForDomain(domain)
@@ -387,7 +397,7 @@ func (worker *Worker) updateQueuesAndStorage(url string, htmlContent *[]byte, li
 }
 
 func (worker *Worker) getNextDomain() (string, error) {
-	domainWithScore, err := worker.redisClient.BZPopMin(worker.workerCtx, time.Second*30, queue.DomainPendingQueue).Result()
+	domainWithScore, err := worker.redisClient.BZPopMin(worker.workerCtx, 15*time.Second, queue.DomainPendingQueue).Result()
 	if err != nil {
 		return "", err
 	}
@@ -396,7 +406,7 @@ func (worker *Worker) getNextDomain() (string, error) {
 }
 
 func (worker *Worker) getNextUrlForDomain(domain string) (string, error) {
-	result, err := worker.redisClient.BRPop(worker.workerCtx, 30*time.Second, "crawl_queue:"+domain).Result()
+	result, err := worker.redisClient.BRPop(worker.workerCtx, 15*time.Second, "crawl_queue:"+domain).Result()
 	if err != nil {
 		return "", err
 	}
