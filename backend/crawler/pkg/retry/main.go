@@ -2,7 +2,6 @@ package retry
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"time"
 
@@ -40,7 +39,7 @@ func New(MaxRetries int, initialBackoff string, maxBackoff string, BackoffMultip
 func (r *Retryer) Do(ctx context.Context, operation func() error, isRetryable func(error) bool) error {
 	var lastErr error
 
-	for attempt := 0; attempt < r.MaxRetries; attempt++ {
+	for attempt := 0; attempt <= r.MaxRetries; attempt++ {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -49,8 +48,8 @@ func (r *Retryer) Do(ctx context.Context, operation func() error, isRetryable fu
 
 		if err == nil {
 			if attempt > 0 {
-				r.logger.Info("Operation succeeded after retry",
-					zap.Int("attempts", attempt+1),
+				r.logger.Infow("Operation succeeded after retry",
+					zap.Int("attempts", attempt),
 				)
 			}
 			return nil
@@ -59,19 +58,17 @@ func (r *Retryer) Do(ctx context.Context, operation func() error, isRetryable fu
 		lastErr = err
 
 		if !isRetryable(err) {
-			r.logger.Debug("Non-retryable error encountered",
-				zap.Error(err),
-			)
+			r.logger.Debug("Non-retryable error encountered")
 			return err
 		}
 
-		if attempt == r.MaxRetries-1 {
+		if attempt == r.MaxRetries {
 			break
 		}
 
 		backoff := r.calculateBackoff(attempt)
 
-		r.logger.Warn("Retryable error, backing off",
+		r.logger.Warnw("Retryable error, backing off",
 			zap.Int("attempt", attempt+1),
 			zap.Int("max_retries", r.MaxRetries),
 			zap.Duration("backoff", backoff),
@@ -83,7 +80,7 @@ func (r *Retryer) Do(ctx context.Context, operation func() error, isRetryable fu
 		}
 	}
 
-	return fmt.Errorf("operation failed after %d attempts: %w", r.MaxRetries, lastErr)
+	return lastErr
 }
 
 func (r *Retryer) calculateBackoff(attempt int) time.Duration {

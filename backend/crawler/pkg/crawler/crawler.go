@@ -31,7 +31,7 @@ var (
 type Crawler struct {
 	logger      *zap.SugaredLogger
 	workerCount int
-	redisClient *redis.Client
+	redisClient *queue.RedisClient
 	dbPool      *pgxpool.Pool
 	httpClient  *http.Client
 	ctx         context.Context
@@ -40,7 +40,7 @@ type Crawler struct {
 
 type Worker struct {
 	logger      *zap.SugaredLogger
-	redisClient *redis.Client
+	redisClient *queue.RedisClient
 	dbPool      *pgxpool.Pool
 	httpClient  *http.Client
 	crawlerCtx  context.Context
@@ -48,7 +48,7 @@ type Worker struct {
 	retryer     *retry.Retryer
 }
 
-func NewCrawler(logger *zap.SugaredLogger, workerCount int, redisClient *redis.Client, dbPool *pgxpool.Pool, httpClient *http.Client, ctx context.Context, retryer *retry.Retryer) *Crawler {
+func NewCrawler(logger *zap.SugaredLogger, workerCount int, redisClient *queue.RedisClient, dbPool *pgxpool.Pool, httpClient *http.Client, ctx context.Context, retryer *retry.Retryer) *Crawler {
 	return &Crawler{
 		logger,
 		workerCount,
@@ -60,7 +60,7 @@ func NewCrawler(logger *zap.SugaredLogger, workerCount int, redisClient *redis.C
 	}
 }
 
-func NewWorker(logger *zap.SugaredLogger, redisClient *redis.Client, dbPool *pgxpool.Pool, httpClient *http.Client, crawlerCtx context.Context, workerCtx context.Context, retryer *retry.Retryer) *Worker {
+func NewWorker(logger *zap.SugaredLogger, redisClient *queue.RedisClient, dbPool *pgxpool.Pool, httpClient *http.Client, crawlerCtx context.Context, workerCtx context.Context, retryer *retry.Retryer) *Worker {
 	return &Worker{
 		logger,
 		redisClient,
@@ -93,7 +93,7 @@ func (crawler *Crawler) Start() {
 				crawler.logger.Fatalln("Failed to initialize retryer", i, err)
 			}
 
-			worker := NewWorker(workerLogger, crawler.redisClient, crawler.dbPool, crawler.httpClient, crawler.ctx, context.Background(), retryer)
+			worker := NewWorker(workerLogger, queue.NewWithClient(crawler.redisClient.Client, retryer), crawler.dbPool, crawler.httpClient, crawler.ctx, context.Background(), retryer)
 			worker.logger.Debugln(fmt.Sprintf("Worker %d initialized", i))
 			worker.work()
 		}()
@@ -156,6 +156,7 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 	for scanner.Scan() {
 		err := crawler.ctx.Err()
 		if err == context.Canceled {
+			crawler.logger.Infoln("Context canceled, stopping publishing of seed urls")
 			break
 		} else if err != nil {
 			crawler.logger.Fatalln("Context error found, crawler shutting down. Err:", err)
@@ -182,11 +183,15 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 		pipe.LPush(crawler.ctx, "crawl_queue:"+domain, normalizedURL)
 	}
 
-	_, err = pipe.Exec(crawler.ctx)
+	err = crawler.retryer.Do(crawler.ctx, func() error {
+		_, err := pipe.Exec(crawler.ctx)
+		return err
+	}, utils.IsRetryableRedisConnectionError)
+
 	if err != nil {
-		crawler.logger.Errorln("Failed to seed urls:", err)
-		return
+		crawler.logger.Fatalln("Failed to seed urls:", err)
 	}
+
 	crawler.logger.Infoln("Published seed URLs")
 }
 
@@ -207,10 +212,10 @@ func (worker *Worker) work() {
 			switch err {
 			case redis.Nil:
 				worker.logger.Infoln("No domains in queue")
+				continue
 			default:
-				worker.logger.Errorln("Error getting domain from queue:", err)
+				worker.logger.Fatalln("Error getting domain from queue:", err)
 			}
-			continue
 		}
 
 		worker.logger = worker.logger.With("domain", domain)
@@ -218,34 +223,30 @@ func (worker *Worker) work() {
 			if strings.HasPrefix(err.Error(), "lock already taken") {
 				worker.logger.Infow("Domain already acquired by another worker")
 			} else {
-				worker.logger.Errorln(err)
+				worker.logger.Fatalln("Error processing domain:", err)
 			}
 		}
 		worker.logger = loggerWithoutDomain
 	}
 }
 
-func (worker *Worker) processDomain(domain string) error {
+func (worker *Worker) processDomain(domain string) (err error) {
 	domainLockKey := "domain_lock:" + domain
 
-	pool := goredis.NewPool(worker.redisClient)
+	pool := goredis.NewPool(worker.redisClient.Client)
 	rs := redsync.New(pool)
 
 	mutex := rs.NewMutex(domainLockKey)
 	redsync.WithExpiry(15 * time.Minute).Apply(mutex)
 
-	if err := mutex.Lock(); err != nil {
+	if err = mutex.Lock(); err != nil {
 		return err
 	}
 
 	defer func() {
-		if _, err := mutex.Unlock(); err != nil {
-			worker.logger.Errorln(err)
+		if _, unlockErr := mutex.Unlock(); unlockErr != nil {
+			err = unlockErr
 		}
-
-		// if err := worker.redisClient.ZRem(worker.ctx, queue.DomainProcessingQueue, domain).Err(); err != nil {
-		// 	return err
-		// }
 	}()
 
 	robotRules, err := worker.getRobotRules(domain)
@@ -259,16 +260,17 @@ func (worker *Worker) processDomain(domain string) error {
 	loggerWithoutUrl := worker.logger
 
 	for {
-		err := worker.crawlerCtx.Err()
+		err = worker.crawlerCtx.Err()
 		if err != nil {
-			if err := worker.redisClient.ZAddNX(worker.workerCtx, queue.DomainPendingQueue, redis.Z{
+			if err = worker.redisClient.ZAddNX(worker.workerCtx, queue.DomainPendingQueue, redis.Z{
 				Member: domain,
 				Score:  float64(time.Now().Unix()),
 			}).Err(); err != nil {
-				return fmt.Errorf("failed to requeue domain, error: %w", err)
+				return err
 			}
 
 			if err == context.Canceled {
+				worker.logger.Debugln("Shutdown signal received, stopping further processing")
 				break
 			} else {
 				return err
@@ -281,16 +283,14 @@ func (worker *Worker) processDomain(domain string) error {
 			break
 		}
 		if err != nil {
-			worker.logger.Errorln("Error getting next URL: ", err)
-			continue
+			worker.logger.Fatalln("Error getting next URL: ", err)
 		}
 
 		worker.logger = worker.logger.With("url", url)
 
 		_, err = mutex.Extend()
 		if err != nil {
-			worker.logger.Errorln("Mutex expiry extension failed. Err:", err)
-			continue
+			worker.logger.Fatalln("Error extending mutex expiry:", err)
 		}
 
 		worker.logger.Debugln("Mutex extended till:", mutex.Until())
@@ -301,10 +301,10 @@ func (worker *Worker) processDomain(domain string) error {
 			case errNotStale, errNotEnglishPage, errNotValidResource:
 				worker.logger.Infoln(err)
 				if err := worker.discardJob(url); err != nil {
-					worker.logger.Errorln("Error discarding URL:", err)
+					worker.logger.Fatalln("Error discarding URL:", err)
 				}
 			default:
-				worker.logger.Errorln("Error processing URL:", err)
+				worker.logger.Fatalln("Error processing URL:", err)
 			}
 		}
 
@@ -326,12 +326,12 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 	}
 
 	worker.logger.Infoln("Checking politeness")
-	polite, err := robotRules.isPolite(domain, worker.redisClient)
+	polite, err := robotRules.isPolite(worker.workerCtx, domain, worker.redisClient)
 	if err != nil && err != redis.Nil {
 		return err
 	}
 	if !polite {
-		worker.logger.Infoln("Impolite sleeping..")
+		worker.logger.Infoln("Impolite to crawl, sleeping..")
 		time.Sleep(time.Second * time.Duration(robotRules.CrawlDelay))
 	}
 
@@ -352,13 +352,7 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 
 func (worker *Worker) discardJob(url string) error {
 	worker.logger.Infoln("Discarding job")
-	err := worker.redisClient.ZRem(worker.workerCtx, queue.UrlsProcessingQueue, url).Err()
-
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return worker.redisClient.ZRem(worker.workerCtx, queue.UrlsProcessingQueue, url).Err()
 }
 
 // func (worker *Worker) requeueJobs(jobs ...redis.Z) error {
@@ -386,11 +380,11 @@ func (worker *Worker) discardJob(url string) error {
 func (worker *Worker) updateQueuesAndStorage(url string, htmlContent *[]byte, links *[]string) error {
 	id, err := worker.updateStorage(url, links)
 	if err != nil {
-		return fmt.Errorf("failed to update storage for URL %s: %w", url, err)
+		return fmt.Errorf("failed to update storage: %w", err)
 	}
 
 	if err := worker.updateQueues(htmlContent, url, id); err != nil {
-		return fmt.Errorf("failed to queue URL %s for indexing: %w", url, err)
+		return fmt.Errorf("failed to update queues: %w", err)
 	}
 
 	return nil
@@ -418,7 +412,7 @@ func (worker *Worker) getNextUrlForDomain(domain string) (string, error) {
 		Member: url,
 	}).Err()
 	if err != nil {
-		return url, err
+		return "", err
 	}
 
 	return url, nil
@@ -443,9 +437,13 @@ func (worker *Worker) updateQueues(htmlContent *[]byte, url string, id int64) er
 	pipe.LPush(worker.workerCtx, queue.IndexPendingQueue, url)
 	pipe.ZRem(worker.workerCtx, queue.UrlsProcessingQueue, url)
 
-	_, err = pipe.Exec(worker.workerCtx)
+	err = worker.retryer.Do(worker.workerCtx, func() error {
+		_, err := pipe.Exec(worker.workerCtx)
+		return err
+	}, utils.IsRetryableRedisConnectionError)
+
 	if err != nil {
-		return fmt.Errorf("failed to update queues: %w", err)
+		return err
 	}
 
 	return nil

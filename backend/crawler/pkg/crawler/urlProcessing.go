@@ -91,7 +91,12 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 				return nil, err
 			}
 
-			if _, err := pipe.Exec(worker.workerCtx); err != nil {
+			err := worker.retryer.Do(worker.workerCtx, func() error {
+				_, err := pipe.Exec(worker.workerCtx)
+				return err
+			}, utils.IsRetryableRedisConnectionError)
+
+			if err != nil {
 				return nil, err
 			}
 

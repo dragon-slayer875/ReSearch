@@ -3,6 +3,7 @@ package crawler
 import (
 	"bufio"
 	"context"
+	"crawler/pkg/queue"
 	"crawler/pkg/utils"
 	"encoding/json"
 	"fmt"
@@ -10,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 )
 
 type RobotRules struct {
@@ -112,8 +111,8 @@ func (worker *Worker) fetchRobotRulesFromWeb(domain string) (*RobotRules, error)
 	return robotRules, nil
 }
 
-func (robotRules *RobotRules) isPolite(domainString string, redisClient *redis.Client) (bool, error) {
-	lastCrawlTime, err := redisClient.HGet(context.Background(), "crawl:domain_delays", domainString).Int64()
+func (robotRules *RobotRules) isPolite(ctx context.Context, domainString string, redisClient *queue.RedisClient) (bool, error) {
+	lastCrawlTime, err := redisClient.HGet(ctx, "crawl:domain_delays", domainString).Int64()
 	if err != nil {
 		return true, err
 	}

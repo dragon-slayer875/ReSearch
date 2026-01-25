@@ -77,19 +77,19 @@ func main() {
 		cfg.Retryer.BackoffMultiplier,
 		sugaredLogger.Named("Retryer"))
 	if err != nil {
-		sugaredLogger.Fatalln("Failed to initialize retryer", err)
+		sugaredLogger.Fatalln("Error initializing retryer:", err)
 	}
 
-	redisClient, err := queue.NewRedisClient(os.Getenv("REDIS_URL"))
+	redisClient, err := queue.New(ctx, os.Getenv("REDIS_URL"), retryer)
 	if err != nil {
-		sugaredLogger.Fatalln(err)
+		sugaredLogger.Fatalln("Error initializing redis client:", err)
 	}
 	sugaredLogger.Debugln("Redis client initialized")
 	defer redisClient.Close()
 
 	dbPool, err := pgxpool.New(ctx, os.Getenv("POSTGRES_URL"))
 	if err != nil {
-		sugaredLogger.Fatalln("Failed to connect to PostgreSQL", err)
+		sugaredLogger.Fatalln("Error connecting to PostgreSQL:", err)
 	}
 	sugaredLogger.Debugln("PostgreSQL client initialized")
 	defer dbPool.Close()
