@@ -6,6 +6,7 @@ import (
 	"crawler/pkg/queue"
 	"crawler/pkg/retry"
 	"crawler/pkg/storage/database"
+	"crawler/pkg/storage/postgres"
 	"crawler/pkg/utils"
 	"encoding/json"
 	"errors"
@@ -19,7 +20,6 @@ import (
 	"github.com/go-redsync/redsync/v4"
 	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
@@ -29,42 +29,42 @@ var (
 )
 
 type Crawler struct {
-	logger      *zap.SugaredLogger
-	workerCount int
-	redisClient *queue.RedisClient
-	dbPool      *pgxpool.Pool
-	httpClient  *http.Client
-	ctx         context.Context
-	retryer     *retry.Retryer
+	logger         *zap.SugaredLogger
+	workerCount    int
+	redisClient    *queue.RedisClient
+	postgresClient *postgres.Client
+	httpClient     *http.Client
+	ctx            context.Context
+	retryer        *retry.Retryer
 }
 
 type Worker struct {
-	logger      *zap.SugaredLogger
-	redisClient *queue.RedisClient
-	dbPool      *pgxpool.Pool
-	httpClient  *http.Client
-	crawlerCtx  context.Context
-	workerCtx   context.Context
-	retryer     *retry.Retryer
+	logger         *zap.SugaredLogger
+	redisClient    *queue.RedisClient
+	postgresClient *postgres.Client
+	httpClient     *http.Client
+	crawlerCtx     context.Context
+	workerCtx      context.Context
+	retryer        *retry.Retryer
 }
 
-func NewCrawler(logger *zap.SugaredLogger, workerCount int, redisClient *queue.RedisClient, dbPool *pgxpool.Pool, httpClient *http.Client, ctx context.Context, retryer *retry.Retryer) *Crawler {
+func NewCrawler(logger *zap.SugaredLogger, workerCount int, redisClient *queue.RedisClient, postgresClient *postgres.Client, httpClient *http.Client, ctx context.Context, retryer *retry.Retryer) *Crawler {
 	return &Crawler{
 		logger,
 		workerCount,
 		redisClient,
-		dbPool,
+		postgresClient,
 		httpClient,
 		ctx,
 		retryer,
 	}
 }
 
-func NewWorker(logger *zap.SugaredLogger, redisClient *queue.RedisClient, dbPool *pgxpool.Pool, httpClient *http.Client, crawlerCtx context.Context, workerCtx context.Context, retryer *retry.Retryer) *Worker {
+func NewWorker(logger *zap.SugaredLogger, redisClient *queue.RedisClient, postgresClient *postgres.Client, httpClient *http.Client, crawlerCtx context.Context, workerCtx context.Context, retryer *retry.Retryer) *Worker {
 	return &Worker{
 		logger,
 		redisClient,
-		dbPool,
+		postgresClient,
 		httpClient,
 		crawlerCtx,
 		workerCtx,
@@ -93,7 +93,7 @@ func (crawler *Crawler) Start() {
 				crawler.logger.Fatalln("Failed to initialize retryer", i, err)
 			}
 
-			worker := NewWorker(workerLogger, queue.NewWithClient(crawler.redisClient.Client, retryer), crawler.dbPool, crawler.httpClient, crawler.ctx, context.Background(), retryer)
+			worker := NewWorker(workerLogger, queue.NewWithClient(crawler.redisClient.Client, retryer), postgres.NewWithPool(crawler.postgresClient.Pool, crawler.postgresClient.Queries, retryer), crawler.httpClient, crawler.ctx, context.Background(), retryer)
 			worker.logger.Debugln(fmt.Sprintf("Worker %d initialized", i))
 			worker.work()
 		}()
@@ -149,7 +149,11 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 	if err != nil {
 		crawler.logger.Errorln("Failed to seed urls:", err)
 	}
-	defer file.Close()
+	defer func() {
+		if deferErr := file.Close(); deferErr != nil {
+			crawler.logger.Errorln(deferErr)
+		}
+	}()
 
 	scanner := bufio.NewScanner(file)
 
@@ -186,7 +190,7 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 	err = crawler.retryer.Do(crawler.ctx, func() error {
 		_, err := pipe.Exec(crawler.ctx)
 		return err
-	}, utils.IsRetryableRedisConnectionError)
+	}, utils.IsRetryableRedisError)
 
 	if err != nil {
 		crawler.logger.Fatalln("Failed to seed urls:", err)
@@ -200,10 +204,10 @@ func (worker *Worker) work() {
 	for {
 		err := worker.crawlerCtx.Err()
 		if err == context.Canceled {
-			worker.logger.Infoln("Finished processing jobs, worker shutting down")
+			worker.logger.Infoln("Worker shutting down")
 			break
 		} else if err != nil {
-			worker.logger.Errorln("Context error found, worker shutting down. Err:", err)
+			worker.logger.Errorln("Context error found, worker shutting down. Error:", err)
 			break
 		}
 
@@ -378,7 +382,7 @@ func (worker *Worker) discardJob(url string) error {
 // }
 
 func (worker *Worker) updateQueuesAndStorage(url string, htmlContent *[]byte, links *[]string) error {
-	id, err := worker.updateStorage(url, links)
+	id, err := worker.postgresClient.UpdateStorage(worker.workerCtx, url, links)
 	if err != nil {
 		return fmt.Errorf("failed to update storage: %w", err)
 	}
@@ -440,58 +444,13 @@ func (worker *Worker) updateQueues(htmlContent *[]byte, url string, id int64) er
 	err = worker.retryer.Do(worker.workerCtx, func() error {
 		_, err := pipe.Exec(worker.workerCtx)
 		return err
-	}, utils.IsRetryableRedisConnectionError)
+	}, utils.IsRetryableRedisError)
 
 	if err != nil {
 		return err
 	}
 
 	return nil
-}
-
-func (worker *Worker) updateStorage(url string, links *[]string) (int64, error) {
-	tx, err := worker.dbPool.Begin(worker.workerCtx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	defer tx.Rollback(worker.workerCtx)
-
-	queries := &database.Queries{}
-	queriesWithTx := queries.WithTx(tx)
-
-	crawledUrlId, err := queriesWithTx.InsertCrawledUrl(worker.workerCtx, url)
-	if err != nil {
-		return 0, fmt.Errorf("failed to insert URL into postgres: %w", err)
-	}
-
-	insertLinksBatch := make([]database.BatchInsertLinksParams, 0)
-	var batchErr error
-	urlInsertResults := queriesWithTx.InsertUrls(worker.workerCtx, *links)
-	urlInsertResults.QueryRow(func(idx int, id int64, err error) {
-		if err != nil {
-			batchErr = err
-			return
-		}
-		insertLinksBatch = append(insertLinksBatch, database.BatchInsertLinksParams{
-			From: crawledUrlId,
-			To:   id,
-		})
-	})
-	if batchErr != nil {
-		return 0, fmt.Errorf("failed to insert URL into postgres: %w", batchErr)
-	}
-
-	linkInsertResults := queriesWithTx.BatchInsertLinks(worker.workerCtx, insertLinksBatch)
-	linkInsertResults.Exec(func(i int, err error) {
-		batchErr = err
-	})
-
-	if batchErr != nil {
-		return 0, fmt.Errorf("failed to insert link into postgres: %w", batchErr)
-	}
-
-	return crawledUrlId, tx.Commit(worker.workerCtx)
 }
 
 func (worker *Worker) getRobotRules(domain string) (*RobotRules, error) {
@@ -513,9 +472,7 @@ func (worker *Worker) getRobotRules(domain string) (*RobotRules, error) {
 
 	worker.logger.Debugln("Robot rules cache miss, getting from DB")
 
-	queries := database.New(worker.dbPool)
-
-	robotRulesQuery, err := queries.GetRobotRules(worker.workerCtx, domain)
+	robotRulesQuery, err := worker.postgresClient.GetRobotRules(worker.workerCtx, domain)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
@@ -555,8 +512,7 @@ func (worker *Worker) getRobotRules(domain string) (*RobotRules, error) {
 }
 
 func (worker *Worker) storeRobotRules(domain string, robotRulesJson []byte) error {
-	queries := database.New(worker.dbPool)
-	if err := queries.CreateRobotRules(worker.workerCtx, database.CreateRobotRulesParams{
+	if err := worker.postgresClient.CreateRobotRules(worker.workerCtx, database.CreateRobotRulesParams{
 		Domain:    domain,
 		RulesJson: robotRulesJson,
 	}); err != nil {
@@ -569,8 +525,7 @@ func (worker *Worker) storeRobotRules(domain string, robotRulesJson []byte) erro
 func (worker *Worker) isStale(url string) (bool, error) {
 	stale := true
 
-	queries := database.New(worker.dbPool)
-	urlData, err := queries.GetUrl(worker.workerCtx, url)
+	urlData, err := worker.postgresClient.GetUrl(worker.workerCtx, url)
 	if err != nil && err != pgx.ErrNoRows {
 		return stale, err
 	}

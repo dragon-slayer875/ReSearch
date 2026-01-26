@@ -19,11 +19,11 @@ var (
 	errNotValidResource = fmt.Errorf("not a valid web page")
 )
 
-func (worker *Worker) crawlUrl(url, domain string) (*[]string, []byte, error) {
+func (worker *Worker) crawlUrl(url, domain string) (links *[]string, htmlBytes []byte, err error) {
 	allowedResourceType := false
 
 	var resp *http.Response
-	err := worker.retryer.Do(worker.workerCtx, func() error {
+	err = worker.retryer.Do(worker.workerCtx, func() error {
 		var tryErr error
 		resp, tryErr = worker.httpClient.Get(url)
 
@@ -32,9 +32,13 @@ func (worker *Worker) crawlUrl(url, domain string) (*[]string, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if deferErr := resp.Body.Close(); deferErr != nil {
+			err = deferErr
+		}
+	}()
 
-	if err := worker.redisClient.HSet(worker.workerCtx, "crawl:domain_delays", domain, time.Now().Unix()).Err(); err != nil {
+	if err = worker.redisClient.HSet(worker.workerCtx, "crawl:domain_delays", domain, time.Now().Unix()).Err(); err != nil {
 		return nil, nil, fmt.Errorf("failed to update domain delay: %w", err)
 	}
 
@@ -64,12 +68,12 @@ func (worker *Worker) crawlUrl(url, domain string) (*[]string, []byte, error) {
 		return nil, nil, errNotValidResource
 	}
 
-	htmlBytes, err := io.ReadAll(resp.Body)
+	htmlBytes, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	links, err := worker.discoverAndQueueUrls(url, htmlBytes)
+	links, err = worker.discoverAndQueueUrls(url, htmlBytes)
 	if err != nil && err != io.EOF {
 		return nil, nil, err
 	}
@@ -94,7 +98,7 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 			err := worker.retryer.Do(worker.workerCtx, func() error {
 				_, err := pipe.Exec(worker.workerCtx)
 				return err
-			}, utils.IsRetryableRedisConnectionError)
+			}, utils.IsRetryableRedisError)
 
 			if err != nil {
 				return nil, err
@@ -120,7 +124,7 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 					if attr.Key == "href" {
 						normalizedURL, domain, ext, err := utils.NormalizeURL(baseURL, attr.Val)
 						if err != nil {
-							worker.logger.Errorln("Url normailzation error:", err)
+							worker.logger.Warnln("Url normailzation error:", err)
 							continue
 						}
 

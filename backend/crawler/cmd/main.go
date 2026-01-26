@@ -6,6 +6,7 @@ import (
 	"crawler/pkg/crawler"
 	"crawler/pkg/queue"
 	"crawler/pkg/retry"
+	"crawler/pkg/storage/postgres"
 	"flag"
 	"net/http"
 	"os"
@@ -13,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 )
@@ -51,7 +51,11 @@ func main() {
 		logger = zap.Must(zapConfig.Build())
 	}
 
-	defer logger.Sync()
+	defer func() {
+		if deferErr := logger.Sync(); deferErr != nil {
+			logger.Error("Error while syncing logger", zap.Error(deferErr))
+		}
+	}()
 
 	sugaredLogger := logger.Sugar()
 
@@ -85,14 +89,18 @@ func main() {
 		sugaredLogger.Fatalln("Error initializing redis client:", err)
 	}
 	sugaredLogger.Debugln("Redis client initialized")
-	defer redisClient.Close()
+	defer func() {
+		if deferErr := redisClient.Close(); deferErr != nil {
+			logger.Error("Error while closing redis client", zap.Error(deferErr))
+		}
+	}()
 
-	dbPool, err := pgxpool.New(ctx, os.Getenv("POSTGRES_URL"))
+	postgresClient, err := postgres.New(ctx, os.Getenv("POSTGRES_URL"), retryer)
 	if err != nil {
 		sugaredLogger.Fatalln("Error connecting to PostgreSQL:", err)
 	}
 	sugaredLogger.Debugln("PostgreSQL client initialized")
-	defer dbPool.Close()
+	defer postgresClient.Close()
 
 	transport := &http.Transport{
 		MaxIdleConns:    cfg.Crawler.MaxIdleConns,
@@ -120,7 +128,7 @@ func main() {
 		cancel()
 	}()
 
-	Crawler := crawler.NewCrawler(sugaredLogger, cfg.Crawler.WorkerCount, redisClient, dbPool, httpClient, ctx, retryer)
+	Crawler := crawler.NewCrawler(sugaredLogger, cfg.Crawler.WorkerCount, redisClient, postgresClient, httpClient, ctx, retryer)
 
 	if *seedPath != "" {
 		Crawler.PublishSeedUrls(*seedPath)

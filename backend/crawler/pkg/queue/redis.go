@@ -49,7 +49,7 @@ func New(ctx context.Context, redisUrl string, retryer *retry.Retryer) (*RedisCl
 		}
 
 		return nil
-	}, utils.IsRetryableRedisConnectionError)
+	}, utils.IsRetryableRedisError)
 
 	if err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func NewWithClient(client *redis.Client, retryer *retry.Retryer) *RedisClient {
 func (rc *RedisClient) Close() error {
 	err := rc.retryer.Do(context.Background(), func() error {
 		return rc.Client.Close()
-	}, utils.IsRetryableRedisConnectionError)
+	}, utils.IsRetryableRedisError)
 
 	return err
 }
@@ -82,7 +82,7 @@ func (rc *RedisClient) ZAddNX(ctx context.Context, key string, members ...redis.
 	_ = rc.retryer.Do(ctx, func() error {
 		redisCmd = rc.Client.ZAddNX(ctx, key, members...)
 		return redisCmd.Err()
-	}, utils.IsRetryableRedisConnectionError)
+	}, utils.IsRetryableRedisError)
 
 	return redisCmd
 }
@@ -93,7 +93,7 @@ func (rc *RedisClient) ZAdd(ctx context.Context, key string, members ...redis.Z)
 	_ = rc.retryer.Do(ctx, func() error {
 		redisCmd = rc.Client.ZAdd(ctx, key, members...)
 		return redisCmd.Err()
-	}, utils.IsRetryableRedisConnectionError)
+	}, utils.IsRetryableRedisError)
 
 	return redisCmd
 }
@@ -104,7 +104,7 @@ func (rc *RedisClient) ZRem(ctx context.Context, key string, members ...any) *re
 	_ = rc.retryer.Do(ctx, func() error {
 		redisCmd = rc.Client.ZRem(ctx, key, members...)
 		return redisCmd.Err()
-	}, utils.IsRetryableRedisConnectionError)
+	}, utils.IsRetryableRedisError)
 
 	return redisCmd
 }
@@ -115,7 +115,7 @@ func (rc *RedisClient) BZPopMin(ctx context.Context, timeout time.Duration, keys
 	_ = rc.retryer.Do(ctx, func() error {
 		redisCmd = rc.Client.BZPopMin(ctx, timeout, keys...)
 		return redisCmd.Err()
-	}, utils.IsRetryableRedisConnectionError)
+	}, utils.IsRetryableRedisError)
 
 	return redisCmd
 }
@@ -126,7 +126,7 @@ func (rc *RedisClient) BRPop(ctx context.Context, timeout time.Duration, keys ..
 	_ = rc.retryer.Do(ctx, func() error {
 		redisCmd = rc.Client.BRPop(ctx, timeout, keys...)
 		return redisCmd.Err()
-	}, utils.IsRetryableRedisConnectionError)
+	}, utils.IsRetryableRedisError)
 
 	return redisCmd
 }
@@ -141,7 +141,7 @@ func (rc *RedisClient) Get(ctx context.Context, key string) *redis.StringCmd {
 	_ = rc.retryer.Do(ctx, func() error {
 		redisCmd = rc.Client.Get(ctx, key)
 		return redisCmd.Err()
-	}, utils.IsRetryableRedisConnectionError)
+	}, utils.IsRetryableRedisError)
 
 	return redisCmd
 }
@@ -152,7 +152,7 @@ func (rc *RedisClient) Set(ctx context.Context, key string, value any, expiratio
 	_ = rc.retryer.Do(ctx, func() error {
 		redisCmd = rc.Client.Set(ctx, key, value, expiration)
 		return redisCmd.Err()
-	}, utils.IsRetryableRedisConnectionError)
+	}, utils.IsRetryableRedisError)
 
 	return redisCmd
 }
@@ -163,7 +163,7 @@ func (rc *RedisClient) HSet(ctx context.Context, key string, values ...any) *red
 	_ = rc.retryer.Do(ctx, func() error {
 		redisCmd = rc.Client.HSet(ctx, key, values...)
 		return redisCmd.Err()
-	}, utils.IsRetryableRedisConnectionError)
+	}, utils.IsRetryableRedisError)
 
 	return redisCmd
 }
@@ -174,7 +174,7 @@ func (rc *RedisClient) HGet(ctx context.Context, key string, field string) *redi
 	_ = rc.retryer.Do(ctx, func() error {
 		redisCmd = rc.Client.HGet(ctx, key, field)
 		return redisCmd.Err()
-	}, utils.IsRetryableRedisConnectionError)
+	}, utils.IsRetryableRedisError)
 
 	return redisCmd
 }

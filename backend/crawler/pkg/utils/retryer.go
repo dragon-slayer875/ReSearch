@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -14,7 +17,7 @@ func IsRetryableNetworkError(err error) bool {
 	return errors.As(err, &netErr)
 }
 
-func IsRetryableRedisConnectionError(err error) bool {
+func IsRetryableRedisError(err error) bool {
 	if errors.Is(err, redis.Nil) {
 		return false
 	}
@@ -24,6 +27,41 @@ func IsRetryableRedisConnectionError(err error) bool {
 	}
 
 	if errors.Is(err, redis.ErrPoolTimeout) || errors.Is(err, redis.ErrPoolExhausted) {
+		return true
+	}
+
+	return IsRetryableNetworkError(err)
+}
+
+func IsRetryablePostgresError(err error) bool {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false
+	}
+
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		// Class 08 — Connection Exception
+		// Class 57 — Operator Intervention (shutdown, etc.)
+		if strings.HasPrefix(pgErr.Code, "08") || strings.HasPrefix(pgErr.Code, "57") {
+			return true
+		}
+
+		// Serialization failures and deadlocks are retryable
+		// Class 40 — Transaction Rollback
+		if strings.HasPrefix(pgErr.Code, "40") {
+			return true
+		}
+
+		return false
+	}
+
+	// Connection-specific errors
+	var connectErr *pgconn.ConnectError
+	if errors.As(err, &connectErr) {
 		return true
 	}
 
