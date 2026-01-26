@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type RobotRules struct {
@@ -29,12 +31,12 @@ func defaultRobotRules() *RobotRules {
 	}
 }
 
-func (worker *Worker) fetchRobotRulesFromWeb(domain string) (*RobotRules, error) {
-
+func (worker *Worker) fetchRobotRulesFromWeb(domain string) (robotRules *RobotRules, err error) {
+	domainPrefix := "http://" + domain
 	var resp *http.Response
-	err := worker.retryer.Do(worker.workerCtx, func() error {
+	err = worker.retryer.Do(worker.workerCtx, func() error {
 		var tryErr error
-		resp, tryErr = worker.httpClient.Get(fmt.Sprintf("http://%s/robots.txt", domain))
+		resp, tryErr = worker.httpClient.Get(domainPrefix + "/robots.txt")
 
 		return tryErr
 	}, utils.IsRetryableNetworkError)
@@ -43,63 +45,69 @@ func (worker *Worker) fetchRobotRulesFromWeb(domain string) (*RobotRules, error)
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusTeapot {
-		return nil, fmt.Errorf("robots.txt not found for %s: %s", domain, resp.Status)
+		worker.logger.Warnw("Non OK status code received for robots.txt", zap.Int("status code", resp.StatusCode))
+		return nil, nil
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		if deferErr := resp.Body.Close(); deferErr != nil {
+			err = deferErr
+		}
+	}()
 
 	scanner := bufio.NewScanner(resp.Body)
 	foundUserAgentAll := false
-	robotRules := defaultRobotRules()
+	robotRules = defaultRobotRules()
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
+		lowercaseLine := strings.ToLower(line)
 
-		if line == "" || strings.HasPrefix(line, "#") {
+		if lowercaseLine == "" || strings.HasPrefix(lowercaseLine, "#") {
 			continue
 		}
 
-		if strings.ToLower(line) == "user-agent: *" {
+		if lowercaseLine == "user-agent: *" {
 			foundUserAgentAll = true
 			continue
 		}
 
 		if foundUserAgentAll {
-			if strings.HasPrefix(strings.ToLower(line), "user-agent:") {
+			if strings.HasPrefix(lowercaseLine, "user-agent:") {
 				break
 			}
 
-			if strings.HasPrefix(strings.ToLower(line), "allow:") {
-				allowPath := strings.TrimSpace(strings.TrimPrefix(line, "Allow:"))
-				allowPath = fmt.Sprintf("http://%s%s", domain, allowPath)
-				if allowPath != "" {
-					robotRules.Allow = append(robotRules.Allow, allowPath)
+			if allowPath, found := strings.CutPrefix(lowercaseLine, "allow:"); found {
+				if strings.TrimSpace(allowPath) == "" {
+					continue
 				}
+				robotRules.Allow = append(robotRules.Allow, domainPrefix+allowPath)
 			}
 
-			if strings.HasPrefix(strings.ToLower(line), "disallow:") {
-				disallowPath := strings.TrimSpace(strings.TrimPrefix(line, "Disallow:"))
-				disallowPath = fmt.Sprintf("http://%s%s", domain, disallowPath)
-				if disallowPath != "" {
-					robotRules.Disallow = append(robotRules.Disallow, disallowPath)
+			if disallowPath, found := strings.CutPrefix(lowercaseLine, "disallow:"); found {
+				if strings.TrimSpace(disallowPath) == "" {
+					continue
 				}
+				robotRules.Allow = append(robotRules.Allow, domainPrefix+disallowPath)
 			}
 
-			if strings.HasPrefix(strings.ToLower(line), "crawl-delay:") {
-				crawlDelayStr := strings.TrimSpace(strings.TrimPrefix(line, "Crawl-delay:"))
-				if crawlDelayStr != "" {
-					crawlDelay, err := strconv.Atoi(crawlDelayStr)
-					if err == nil {
-						robotRules.CrawlDelay = crawlDelay
-					}
+			if crawlDelayStr, found := strings.CutPrefix(lowercaseLine, "crawl-delay:"); found {
+				if strings.TrimSpace(crawlDelayStr) == "" {
+					continue
 				}
+				crawlDelay, err := strconv.Atoi(crawlDelayStr)
+				if err != nil {
+					worker.logger.Warnln("Error parsing crawl delay in robot.txt:", err)
+					continue
+				}
+				robotRules.CrawlDelay = crawlDelay
 			}
 
-			if strings.HasPrefix(strings.ToLower(line), "sitemap:") {
-				sitemapUrl := strings.TrimSpace(strings.TrimPrefix(line, "Sitemap:"))
-				if sitemapUrl != "" {
-					robotRules.Sitemaps = append(robotRules.Sitemaps, sitemapUrl)
+			if sitemapUrl, found := strings.CutPrefix(lowercaseLine, "sitemap:"); found {
+				if strings.TrimSpace(sitemapUrl) == "" {
+					continue
 				}
+				robotRules.Sitemaps = append(robotRules.Sitemaps, sitemapUrl)
 			}
 		}
 	}
