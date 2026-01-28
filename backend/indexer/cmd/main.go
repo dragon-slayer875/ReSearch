@@ -6,13 +6,13 @@ import (
 	"indexer/internals/config"
 	"indexer/internals/indexer"
 	"indexer/internals/queue"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -20,30 +20,48 @@ func main() {
 	envPath := flag.String("env", ".env", "Path to env variables file")
 	flag.Parse()
 
-	logger := log.New(os.Stdout, "indexer: ", log.LstdFlags|log.Lshortfile)
+	//TODO add dev flag for dev logger
+	logger := zap.Must(zap.NewProduction())
 
 	ctx := context.Background()
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		logger.Fatalln("Failed to load config:", err)
+		if os.IsNotExist(err) {
+			logger.Debug("Config file not found")
+		} else {
+			logger.Fatal("Failed to load config", zap.Error(err))
+		}
 	}
+	logger.Debug("Config loaded")
 
 	err = godotenv.Load(*envPath)
 	if err != nil {
-		logger.Fatalln("Error loading environment variables:", err)
+		if os.IsNotExist(err) {
+			logger.Debug("env file not found")
+		} else {
+			logger.Fatal("Failed to load env file", zap.Error(err))
+		}
 	}
+	logger.Debug("env variables loaded")
 
 	redisClient, err := queue.NewRedisClient(os.Getenv("REDIS_URL"))
 	if err != nil {
-		logger.Fatalf("Failed to connect to Redis: %v", err)
+		logger.Fatal("Failed to initialize redis client:", zap.Error(err))
 	}
+	logger.Debug("Redis client initialized")
+
+	defer func() {
+		if deferErr := redisClient.Close(); deferErr != nil {
+			logger.Error("Failed to close redis client", zap.Error(deferErr))
+		}
+	}()
 
 	dbPool, err := pgxpool.New(ctx, os.Getenv("POSTGRES_URL"))
 	if err != nil {
-		logger.Fatalf("Failed to connect to PostgreSQL: %v", err)
+		logger.Fatal("Failed to connect to PostgreSQL", zap.Error(err))
 	}
-
+	logger.Debug("PostgreSQL client initialized")
 	defer dbPool.Close()
 
 	sigChan := make(chan os.Signal, 1)
@@ -51,12 +69,12 @@ func main() {
 
 	go func() {
 		<-sigChan
-		logger.Println("Received shutdown signal, exiting...")
+		logger.Info("Received shutdown signal, exiting...")
 		os.Exit(0)
 	}()
 
 	indexer := indexer.NewIndexer(logger, cfg.Indexer.WorkerCount, redisClient, dbPool, ctx)
 
-	logger.Println("Starting...")
+	logger.Info("Starting...")
 	indexer.Start()
 }

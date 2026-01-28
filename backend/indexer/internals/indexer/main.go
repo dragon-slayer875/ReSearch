@@ -8,17 +8,17 @@ import (
 	"indexer/internals/queue"
 	"indexer/internals/storage/database"
 	"io"
-	"log"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 )
 
 type Indexer struct {
-	logger      *log.Logger
+	logger      *zap.Logger
 	workerCount int
 	redisClient *redis.Client
 	dbPool      *pgxpool.Pool
@@ -29,7 +29,7 @@ var (
 	errNoJobs = errors.New("no jobs available")
 )
 
-func NewIndexer(logger *log.Logger, workerCount int, redisClient *redis.Client, dbPool *pgxpool.Pool, ctx context.Context) *Indexer {
+func NewIndexer(logger *zap.Logger, workerCount int, redisClient *redis.Client, dbPool *pgxpool.Pool, ctx context.Context) *Indexer {
 	return &Indexer{
 		logger,
 		workerCount,
@@ -69,7 +69,7 @@ func (i *Indexer) Start() {
 				Count:  100,
 			}).Result()
 			if err != nil {
-				i.logger.Println("Error fetching processing jobs:", err)
+				i.logger.Error("Error fetching processing jobs", zap.Error(err))
 				time.Sleep(2 * time.Second)
 				continue
 			}
@@ -81,7 +81,7 @@ func (i *Indexer) Start() {
 
 			for _, job := range processingJobs {
 				if err := i.requeueJob(job); err != nil {
-					i.logger.Println("Error requeuing job:", job, "Error:", err)
+					i.logger.Error("Error requeuing job", zap.Error(err))
 				}
 			}
 
@@ -95,36 +95,36 @@ func (i *Indexer) worker() {
 	for {
 		jobDetailsStr, err := i.getNextJob()
 		if err != nil {
-			i.logger.Println(err)
+			i.logger.Error("Error getting job", zap.Error(err))
 			continue
 		}
 
 		job := &queue.IndexJob{}
 		if err := json.Unmarshal([]byte(jobDetailsStr), job); err != nil {
-			i.logger.Printf("Error unmarshaling job: %v\n", err)
+			i.logger.Error("Error unmarshaling job", zap.Error(err))
 			continue
 		}
 
-		i.logger.Printf("Processing job: %d\n", job.JobId)
+		i.logger.Info("Processing job", zap.Int64("id", job.JobId))
 
 		processedJob, err := i.processJob(job)
 		if err != nil && err != io.EOF {
-			i.logger.Printf("Error processing job %s: %v\n", job.Url, err)
+			i.logger.Error("Error processing job", zap.Error(err), zap.String("url", job.Url))
 			continue
 		}
 
 		postingsList, err := i.createPostingsList(processedJob.cleanTextContent, job.JobId)
 		if err != nil {
-			i.logger.Printf("Error creating postings list for job %s: %v\n", job.Url, err)
+			i.logger.Error("Error creating postings list", zap.String("url", job.Url), zap.Error(err))
 			continue
 		}
 
 		if err := i.updateQueuesAndStorage(postingsList, job.Url, job.JobId, processedJob); err != nil {
-			i.logger.Printf("Error updating queues for job %s: %v\n", job.Url, err)
+			i.logger.Error("Error updating queues for job", zap.Error(err), zap.String("url", job.Url))
 			continue
 		}
 
-		i.logger.Println("Successfully processed job:", job.JobId)
+		i.logger.Info("Successfully processed job:", zap.Int64("id", job.JobId))
 	}
 }
 
@@ -132,13 +132,13 @@ func (i *Indexer) tfIdfUpdater() {
 	queries := database.New(i.dbPool)
 	for {
 		time.Sleep(5 * time.Minute)
-		i.logger.Println("Starting tf-idf updates")
+		i.logger.Info("Starting tf-idf updates")
 		err := queries.UpdateTfIdf(i.ctx)
 		if err != nil {
-			i.logger.Println("Error updating tf-idf:", err)
+			i.logger.Error("Error updating tf-idf:", zap.Error(err))
 			continue
 		}
-		i.logger.Println("tf-idf updates complete")
+		i.logger.Info("tf-idf updates complete")
 	}
 }
 
