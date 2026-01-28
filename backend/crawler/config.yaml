@@ -2,7 +2,7 @@ crawler:
   worker_count: 5
   http_timeout: 0
   max_idle_conns: 100
-  max_idle_conns_per_host: 1
+  max_conns_per_host: 1
   idle_conn_timeout: 30
   user_agent: "Go-http-client/1.1"
 
