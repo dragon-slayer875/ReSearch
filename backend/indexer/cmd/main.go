@@ -17,6 +17,7 @@ import (
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
+	envPath := flag.String("env", ".env", "Path to env variables file")
 	flag.Parse()
 
 	logger := log.New(os.Stdout, "indexer: ", log.LstdFlags|log.Lshortfile)
@@ -28,7 +29,7 @@ func main() {
 		logger.Fatalln("Failed to load config:", err)
 	}
 
-	err = godotenv.Load()
+	err = godotenv.Load(*envPath)
 	if err != nil {
 		logger.Fatalln("Error loading environment variables:", err)
 	}
