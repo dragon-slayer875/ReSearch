@@ -45,7 +45,7 @@ func (worker *Worker) fetchRobotRulesFromWeb(domain string) (robotRules *RobotRu
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusTeapot {
-		worker.logger.Warnw("Non OK status code received for robots.txt", zap.Int("status code", resp.StatusCode))
+		worker.logger.Warn("Non OK status code received for robots.txt", zap.Int("status_code", resp.StatusCode))
 		return nil, nil
 	}
 
@@ -97,7 +97,7 @@ func (worker *Worker) fetchRobotRulesFromWeb(domain string) (robotRules *RobotRu
 				}
 				crawlDelay, err := strconv.Atoi(crawlDelayStr)
 				if err != nil {
-					worker.logger.Warnln("Error parsing crawl delay in robot.txt:", err)
+					worker.logger.Warn("Failed to parse crawl delay in robots.txt", zap.String("warning", err.Error()))
 					continue
 				}
 				robotRules.CrawlDelay = crawlDelay
@@ -155,7 +155,7 @@ func (worker *Worker) parseRobotRules(robotRulesJson []byte) *RobotRules {
 	}
 
 	if err := json.Unmarshal(robotRulesJson, &robotRules); err != nil {
-		worker.logger.Warnln("Robot rules parsing failure:", err)
+		worker.logger.Warn("Failed to parse robot rules", zap.String("warning", err.Error()))
 		return nil
 	}
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 	"golang.org/x/net/html"
 )
 
@@ -124,7 +125,7 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 					if attr.Key == "href" {
 						normalizedURL, domain, ext, err := utils.NormalizeURL(baseURL, attr.Val)
 						if err != nil {
-							worker.logger.Warnln("Url normailzation error:", err)
+							worker.logger.Warn("Failed to normalize URL", zap.String("raw_url", attr.Val), zap.String("warning", err.Error()))
 							continue
 						}
 
@@ -147,7 +148,7 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 							Score:  float64(time.Now().Unix()),
 						})
 						pipe.LPush(worker.workerCtx, "crawl_queue:"+domain, normalizedURL)
-						worker.logger.Debugln("Piped URL", normalizedURL)
+						worker.logger.Debug("Piped URL", zap.String("normalized_url", normalizedURL))
 
 						break
 					}

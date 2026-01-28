@@ -7,5 +7,7 @@ crawler:
   user_agent: "Go-http-client/1.1"
 
 logging:
-  level: "info"
-  format: "json"
+  level: "info" # "debug" / "info" / "warn" / "error" / "fatal"
+  encoding: "json" # "json" / "console"
+  output_paths: # "stderr" / "stdout" / "<absolute/file/path>" / "<relative/file/path>"
+    - "stderr"

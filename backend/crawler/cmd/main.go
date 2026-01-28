@@ -7,6 +7,8 @@ import (
 	"crawler/pkg/queue"
 	"crawler/pkg/retry"
 	"crawler/pkg/storage/postgres"
+	"crawler/pkg/utils"
+	"errors"
 	"flag"
 	"net/http"
 	"os"
@@ -33,73 +35,72 @@ func (h *HeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 }
 
 func main() {
-	debug := flag.Bool("debug", false, "Enable debug logs")
+	dev := flag.Bool("dev", false, "Enable development environment behavior")
 	seedPath := flag.String("seed", "", "Path to seed URLs file")
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
 	envPath := flag.String("env", ".env", "Path to env variables file")
 	flag.Parse()
 
 	logger := zap.Must(zap.NewProduction())
-	if *debug {
-		zapConfig := zap.Config{
-			Level:         zap.NewAtomicLevelAt(zap.DebugLevel),
-			Development:   true,
-			OutputPaths:   []string{"stdout", "logs.txt"},
-			Encoding:      "console",
-			EncoderConfig: zap.NewDevelopmentEncoderConfig(),
-		}
-		logger = zap.Must(zapConfig.Build())
+	if *dev {
+		logger = zap.Must(zap.NewDevelopment())
 	}
 
 	defer func() {
-		if deferErr := logger.Sync(); deferErr != nil {
-			logger.Error("Error while syncing logger", zap.Error(deferErr))
+		if deferErr := logger.Sync(); deferErr != nil && !errors.Is(deferErr, syscall.EINVAL) {
+			logger.Error("Failed to sync logger", zap.Error(deferErr))
 		}
 	}()
 
-	sugaredLogger := logger.Sugar()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		sugaredLogger.Fatalln("Failed to load config:", err)
+		if cfg == nil {
+			logger.Fatal("Failed to load config", zap.Error(err))
+		}
+		logger.Warn("Failed to load config file, using defaults", zap.Error(err))
 	}
-	sugaredLogger.Debugln("Config loaded")
+	logger.Debug("Config loaded")
+
+	logger, err = utils.NewConfiguredLogger(dev, cfg)
+	if err != nil {
+		logger.Fatal("Failed to configure logger", zap.Error(err))
+	}
 
 	err = godotenv.Load(*envPath)
 	if err != nil {
-		sugaredLogger.Fatalln("Error loading environment variables:", err)
+		logger.Fatal("Failed to load environment variables", zap.Error(err))
 	}
-	sugaredLogger.Debugln(".env loaded")
+	logger.Debug(".env loaded")
 
 	retryer, err := retry.New(
 		cfg.Retryer.MaxRetries,
 		cfg.Retryer.InitialBackoff,
 		cfg.Retryer.MaxBackoff,
 		cfg.Retryer.BackoffMultiplier,
-		sugaredLogger.Named("Retryer"))
+		logger.Named("Retryer"))
 	if err != nil {
-		sugaredLogger.Fatalln("Error initializing retryer:", err)
+		logger.Fatal("Failed to initialize retryer", zap.Error(err))
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	redisClient, err := queue.New(ctx, os.Getenv("REDIS_URL"), retryer)
 	if err != nil {
-		sugaredLogger.Fatalln("Error initializing redis client:", err)
+		logger.Fatal("Failed to initialize redis client:", zap.Error(err))
 	}
-	sugaredLogger.Debugln("Redis client initialized")
+	logger.Debug("Redis client initialized")
 	defer func() {
 		if deferErr := redisClient.Close(); deferErr != nil {
-			logger.Error("Error while closing redis client", zap.Error(deferErr))
+			logger.Error("Failed to close redis client", zap.Error(deferErr))
 		}
 	}()
 
 	postgresClient, err := postgres.New(ctx, os.Getenv("POSTGRES_URL"), retryer)
 	if err != nil {
-		sugaredLogger.Fatalln("Error connecting to PostgreSQL:", err)
+		logger.Fatal("Failed to connect to PostgreSQL:", zap.Error(err))
 	}
-	sugaredLogger.Debugln("PostgreSQL client initialized")
+	logger.Debug("PostgreSQL client initialized")
 	defer postgresClient.Close()
 
 	transport := &http.Transport{
@@ -124,17 +125,17 @@ func main() {
 
 	go func() {
 		<-sigChan
-		sugaredLogger.Infoln("Received shutdown signal, completing running jobs...")
+		logger.Info("Received shutdown signal, completing running jobs...")
 		cancel()
 	}()
 
-	Crawler := crawler.NewCrawler(sugaredLogger, cfg.Crawler.WorkerCount, redisClient, postgresClient, httpClient, ctx, retryer)
+	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient, postgresClient, httpClient, ctx, retryer)
 
 	if *seedPath != "" {
 		Crawler.PublishSeedUrls(*seedPath)
 	}
 
-	sugaredLogger.Infoln("Starting...")
+	logger.Info("Starting...")
 	Crawler.Start()
-	sugaredLogger.Infoln("Exiting...")
+	logger.Info("Exiting...")
 }

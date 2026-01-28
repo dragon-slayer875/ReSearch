@@ -21,8 +21,9 @@ type CrawlerConfig struct {
 }
 
 type LoggingConfig struct {
-	Level  string `mapstructure:"level"`
-	Format string `mapstructure:"format"`
+	Level       string   `mapstructure:"level"`
+	Encoding    string   `mapstructure:"encoding"`
+	OutputPaths []string `mapstructure:"output_paths"`
 }
 
 type RetryerConfig struct {
@@ -43,20 +44,19 @@ func Load(configPath string) (*Config, error) {
 	viper.SetDefault("crawler.idle_conn_timeout", 0)             // in seconds
 	viper.SetDefault("crawler.user_agent", "Go-http-client/1.1") // default user agent
 	viper.SetDefault("logging.level", "info")
-	viper.SetDefault("logging.format", "json")
+	viper.SetDefault("logging.encoding", "json")
+	viper.SetDefault("logging.output_paths", []string{"stderr"})
 	viper.SetDefault("retryer.max_retries", 5)
 	viper.SetDefault("retryer.initial_backoff", "500ms") // pattern is <number><unit> ns, us, ms, s, m, h
 	viper.SetDefault("retryer.max_backoff", "30s")
 	viper.SetDefault("retryer.backoff_multiplier", 2)
 
-	if err := viper.ReadInConfig(); err != nil {
-		return nil, err
-	}
+	configReadingErr := viper.ReadInConfig()
 
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
 		return nil, err
 	}
 
-	return &config, nil
+	return &config, configReadingErr
 }

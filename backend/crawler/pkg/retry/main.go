@@ -13,25 +13,25 @@ type Retryer struct {
 	InitialBackoff    time.Duration
 	MaxBackoff        time.Duration
 	BackoffMultiplier float64
-	logger            *zap.SugaredLogger
+	logger            *zap.Logger
 }
 
-func New(MaxRetries int, initialBackoff string, maxBackoff string, BackoffMultiplier float64, logger *zap.SugaredLogger) (*Retryer, error) {
-	InitialBackoff, err := time.ParseDuration(initialBackoff)
+func New(maxRetries int, initialBackoffStr string, maxBackoffStr string, backoffMultiplier float64, logger *zap.Logger) (*Retryer, error) {
+	initialBackoff, err := time.ParseDuration(initialBackoffStr)
 	if err != nil {
 		return nil, err
 	}
 
-	MaxBackoff, err := time.ParseDuration(maxBackoff)
+	maxBackoff, err := time.ParseDuration(maxBackoffStr)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Retryer{
-		MaxRetries,
-		InitialBackoff,
-		MaxBackoff,
-		BackoffMultiplier,
+		maxRetries,
+		initialBackoff,
+		maxBackoff,
+		backoffMultiplier,
 		logger,
 	}, nil
 }
@@ -48,7 +48,7 @@ func (r *Retryer) Do(ctx context.Context, operation func() error, isRetryable fu
 
 		if err == nil {
 			if attempt > 0 {
-				r.logger.Infow("Operation succeeded after retry",
+				r.logger.Info("Operation succeeded after retry",
 					zap.Int("attempts", attempt),
 				)
 			}
@@ -68,7 +68,7 @@ func (r *Retryer) Do(ctx context.Context, operation func() error, isRetryable fu
 
 		backoff := r.calculateBackoff(attempt)
 
-		r.logger.Warnw("Retryable error, backing off",
+		r.logger.Warn("Retryable error, backing off",
 			zap.Int("attempt", attempt+1),
 			zap.Int("max_retries", r.MaxRetries),
 			zap.Duration("backoff", backoff),
