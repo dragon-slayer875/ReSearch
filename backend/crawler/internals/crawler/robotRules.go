@@ -3,8 +3,8 @@ package crawler
 import (
 	"bufio"
 	"context"
-	"crawler/pkg/storage/redis"
-	"crawler/pkg/utils"
+	"crawler/internals/storage/redis"
+	"crawler/internals/utils"
 	"encoding/json"
 	"fmt"
 	"net/http"

@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"crawler/pkg/config"
+	"crawler/internals/config"
 
 	"go.uber.org/zap"
 )

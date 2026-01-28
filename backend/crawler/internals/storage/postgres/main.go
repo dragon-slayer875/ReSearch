@@ -2,9 +2,9 @@ package postgres
 
 import (
 	"context"
-	"crawler/pkg/retry"
-	"crawler/pkg/storage/database"
-	"crawler/pkg/utils"
+	"crawler/internals/retry"
+	"crawler/internals/storage/database"
+	"crawler/internals/utils"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

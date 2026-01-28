@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	"crawler/pkg/config"
-	"crawler/pkg/crawler"
-	"crawler/pkg/retry"
-	"crawler/pkg/storage/postgres"
-	"crawler/pkg/storage/redis"
-	"crawler/pkg/utils"
+	"crawler/internals/config"
+	"crawler/internals/crawler"
+	"crawler/internals/retry"
+	"crawler/internals/storage/postgres"
+	"crawler/internals/storage/redis"
+	"crawler/internals/utils"
 	"errors"
 	"flag"
 	"net/http"

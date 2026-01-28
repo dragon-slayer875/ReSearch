@@ -2,8 +2,8 @@ package crawler
 
 import (
 	"bytes"
-	"crawler/pkg/storage/redis"
-	"crawler/pkg/utils"
+	"crawler/internals/storage/redis"
+	"crawler/internals/utils"
 	"fmt"
 	"io"
 	"net/http"

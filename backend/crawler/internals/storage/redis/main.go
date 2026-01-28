@@ -2,8 +2,8 @@ package redis
 
 import (
 	"context"
-	"crawler/pkg/retry"
-	"crawler/pkg/utils"
+	"crawler/internals/retry"
+	"crawler/internals/utils"
 	"time"
 
 	"github.com/redis/go-redis/v9"
