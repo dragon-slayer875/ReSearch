@@ -37,8 +37,8 @@ func (h *HeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 func main() {
 	dev := flag.Bool("dev", false, "Enable development environment behavior")
 	seedPath := flag.String("seed", "", "Path to seed URLs file")
-	configPath := flag.String("config", "config.yaml", "Path to configuration file")
-	envPath := flag.String("env", ".env", "Path to env variables file")
+	configPath := flag.String("config", "", "Path to configuration file")
+	envPath := flag.String("env", "", "Path to env variables file")
 	flag.Parse()
 
 	logger := zap.Must(zap.NewProduction())
@@ -66,11 +66,13 @@ func main() {
 		logger.Fatal("Failed to configure logger", zap.Error(err))
 	}
 
-	err = godotenv.Load(*envPath)
-	if err != nil {
-		logger.Fatal("Failed to load environment variables", zap.Error(err))
+	if *envPath != "" {
+		err = godotenv.Load(*envPath)
+		if err != nil {
+			logger.Fatal("Failed to load environment variables", zap.Error(err))
+		}
+		logger.Debug(".env loaded")
 	}
-	logger.Debug(".env loaded")
 
 	retryer, err := retry.New(
 		cfg.Retryer.MaxRetries,

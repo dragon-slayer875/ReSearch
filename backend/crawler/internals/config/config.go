@@ -34,10 +34,14 @@ type RetryerConfig struct {
 }
 
 func Load(configPath string) (*Config, error) {
-	viper.SetConfigFile(configPath)
-	viper.AutomaticEnv()
+	var configReadingErr error
 
-	viper.SetDefault("crawler.worker_count", 200)
+	if configPath != "" {
+		viper.SetConfigFile(configPath)
+		configReadingErr = viper.ReadInConfig()
+	}
+
+	viper.SetDefault("crawler.worker_count", 5)
 	viper.SetDefault("crawler.http_timeout", 0) // in seconds
 	viper.SetDefault("crawler.max_idle_conns", 100)
 	viper.SetDefault("crawler.max_conns_per_host", 1)
@@ -50,8 +54,6 @@ func Load(configPath string) (*Config, error) {
 	viper.SetDefault("retryer.initial_backoff", "500ms") // pattern is <number><unit> ns, us, ms, s, m, h
 	viper.SetDefault("retryer.max_backoff", "30s")
 	viper.SetDefault("retryer.backoff_multiplier", 2)
-
-	configReadingErr := viper.ReadInConfig()
 
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
