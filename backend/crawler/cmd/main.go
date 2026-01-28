@@ -36,9 +36,9 @@ func (h *HeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 func main() {
 	dev := flag.Bool("dev", false, "Enable development environment behavior")
-	seedPath := flag.String("seed", "", "Path to seed URLs file")
-	configPath := flag.String("config", "", "Path to configuration file")
-	envPath := flag.String("env", "", "Path to env variables file")
+	seedPath := flag.String("seed", "seed.txt", "Path to seed URLs file")
+	configPath := flag.String("config", "config.yaml", "Path to configuration file")
+	envPath := flag.String("env", ".env", "Path to env variables file")
 	flag.Parse()
 
 	logger := zap.Must(zap.NewProduction())
@@ -54,10 +54,11 @@ func main() {
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		if cfg == nil {
+		if os.IsNotExist(err) {
+			logger.Debug("Config file not found")
+		} else {
 			logger.Fatal("Failed to load config", zap.Error(err))
 		}
-		logger.Warn("Failed to load config file, using defaults", zap.Error(err))
 	}
 	logger.Debug("Config loaded")
 
@@ -66,13 +67,15 @@ func main() {
 		logger.Fatal("Failed to configure logger", zap.Error(err))
 	}
 
-	if *envPath != "" {
-		err = godotenv.Load(*envPath)
-		if err != nil {
-			logger.Fatal("Failed to load environment variables", zap.Error(err))
+	err = godotenv.Load(*envPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logger.Debug("env file not found")
+		} else {
+			logger.Fatal("Failed to load env file", zap.Error(err))
 		}
-		logger.Debug(".env loaded")
 	}
+	logger.Debug("env variables loaded")
 
 	retryer, err := retry.New(
 		cfg.Retryer.MaxRetries,
@@ -92,6 +95,7 @@ func main() {
 		logger.Fatal("Failed to initialize redis client:", zap.Error(err))
 	}
 	logger.Debug("Redis client initialized")
+
 	defer func() {
 		if deferErr := redisClient.Close(); deferErr != nil {
 			logger.Error("Failed to close redis client", zap.Error(deferErr))
@@ -133,9 +137,7 @@ func main() {
 
 	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient, postgresClient, httpClient, ctx, retryer)
 
-	if *seedPath != "" {
-		Crawler.PublishSeedUrls(*seedPath)
-	}
+	Crawler.PublishSeedUrls(*seedPath)
 
 	logger.Info("Starting...")
 	Crawler.Start()

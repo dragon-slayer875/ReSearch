@@ -146,12 +146,16 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 	pipe := crawler.redisClient.Pipeline()
 
 	file, err := os.Open(seedPath)
-	if err != nil {
-		crawler.logger.Error("Failed to seed urls", zap.Error(err))
+	if os.IsNotExist(err) {
+		crawler.logger.Debug("Seed file not found")
+		return
+	} else if err != nil {
+		crawler.logger.Fatal("Failed to seed urls", zap.Error(err))
 	}
+
 	defer func() {
 		if deferErr := file.Close(); deferErr != nil {
-			crawler.logger.Error("Failed to close file", zap.Error(deferErr))
+			crawler.logger.Error("Failed to close seed file", zap.Error(deferErr))
 		}
 	}()
 

@@ -36,10 +36,8 @@ type RetryerConfig struct {
 func Load(configPath string) (*Config, error) {
 	var configReadingErr error
 
-	if configPath != "" {
-		viper.SetConfigFile(configPath)
-		configReadingErr = viper.ReadInConfig()
-	}
+	viper.SetConfigFile(configPath)
+	configReadingErr = viper.ReadInConfig()
 
 	viper.SetDefault("crawler.worker_count", 5)
 	viper.SetDefault("crawler.http_timeout", 0) // in seconds
