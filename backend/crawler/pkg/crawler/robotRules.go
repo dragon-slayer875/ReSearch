@@ -3,7 +3,7 @@ package crawler
 import (
 	"bufio"
 	"context"
-	"crawler/pkg/queue"
+	"crawler/pkg/storage/redis"
 	"crawler/pkg/utils"
 	"encoding/json"
 	"fmt"
@@ -119,7 +119,7 @@ func (worker *Worker) fetchRobotRulesFromWeb(domain string) (robotRules *RobotRu
 	return robotRules, nil
 }
 
-func (robotRules *RobotRules) isPolite(ctx context.Context, domainString string, redisClient *queue.RedisClient) (bool, error) {
+func (robotRules *RobotRules) isPolite(ctx context.Context, domainString string, redisClient *redis.RedisClient) (bool, error) {
 	lastCrawlTime, err := redisClient.HGet(ctx, "crawl:domain_delays", domainString).Int64()
 	if err != nil {
 		return true, err

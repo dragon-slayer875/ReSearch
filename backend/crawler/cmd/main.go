@@ -4,9 +4,9 @@ import (
 	"context"
 	"crawler/pkg/config"
 	"crawler/pkg/crawler"
-	"crawler/pkg/queue"
 	"crawler/pkg/retry"
 	"crawler/pkg/storage/postgres"
+	"crawler/pkg/storage/redis"
 	"crawler/pkg/utils"
 	"errors"
 	"flag"
@@ -85,7 +85,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	redisClient, err := queue.New(ctx, os.Getenv("REDIS_URL"), retryer)
+	redisClient, err := redis.New(ctx, os.Getenv("REDIS_URL"), retryer)
 	if err != nil {
 		logger.Fatal("Failed to initialize redis client:", zap.Error(err))
 	}

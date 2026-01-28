@@ -2,7 +2,7 @@ package crawler
 
 import (
 	"bytes"
-	"crawler/pkg/queue"
+	"crawler/pkg/storage/redis"
 	"crawler/pkg/utils"
 	"fmt"
 	"io"
@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	redisLib "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 	"golang.org/x/net/html"
 )
@@ -143,7 +143,7 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 						uniqueUrls[normalizedURL] = struct{}{}
 						outlinks = append(outlinks, normalizedURL)
 
-						pipe.ZAddNX(worker.workerCtx, queue.DomainPendingQueue, redis.Z{
+						pipe.ZAddNX(worker.workerCtx, redis.DomainPendingQueue, redisLib.Z{
 							Member: domain,
 							Score:  float64(time.Now().Unix()),
 						})

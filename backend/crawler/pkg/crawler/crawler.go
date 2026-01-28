@@ -3,10 +3,10 @@ package crawler
 import (
 	"bufio"
 	"context"
-	"crawler/pkg/queue"
 	"crawler/pkg/retry"
 	"crawler/pkg/storage/database"
 	"crawler/pkg/storage/postgres"
+	"crawler/pkg/storage/redis"
 	"crawler/pkg/utils"
 	"encoding/json"
 	"errors"
@@ -20,7 +20,7 @@ import (
 	"github.com/go-redsync/redsync/v4"
 	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	"github.com/jackc/pgx/v5"
-	"github.com/redis/go-redis/v9"
+	redisLib "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -31,7 +31,7 @@ var (
 type Crawler struct {
 	logger         *zap.Logger
 	workerCount    int
-	redisClient    *queue.RedisClient
+	redisClient    *redis.RedisClient
 	postgresClient *postgres.Client
 	httpClient     *http.Client
 	ctx            context.Context
@@ -40,7 +40,7 @@ type Crawler struct {
 
 type Worker struct {
 	logger         *zap.Logger
-	redisClient    *queue.RedisClient
+	redisClient    *redis.RedisClient
 	postgresClient *postgres.Client
 	httpClient     *http.Client
 	crawlerCtx     context.Context
@@ -48,7 +48,7 @@ type Worker struct {
 	retryer        *retry.Retryer
 }
 
-func NewCrawler(logger *zap.Logger, workerCount int, redisClient *queue.RedisClient, postgresClient *postgres.Client, httpClient *http.Client, ctx context.Context, retryer *retry.Retryer) *Crawler {
+func NewCrawler(logger *zap.Logger, workerCount int, redisClient *redis.RedisClient, postgresClient *postgres.Client, httpClient *http.Client, ctx context.Context, retryer *retry.Retryer) *Crawler {
 	return &Crawler{
 		logger,
 		workerCount,
@@ -60,7 +60,7 @@ func NewCrawler(logger *zap.Logger, workerCount int, redisClient *queue.RedisCli
 	}
 }
 
-func NewWorker(logger *zap.Logger, redisClient *queue.RedisClient, postgresClient *postgres.Client, httpClient *http.Client, crawlerCtx context.Context, workerCtx context.Context, retryer *retry.Retryer) *Worker {
+func NewWorker(logger *zap.Logger, redisClient *redis.RedisClient, postgresClient *postgres.Client, httpClient *http.Client, crawlerCtx context.Context, workerCtx context.Context, retryer *retry.Retryer) *Worker {
 	return &Worker{
 		logger,
 		redisClient,
@@ -93,7 +93,7 @@ func (crawler *Crawler) Start() {
 				crawler.logger.Fatal("Failed to initialize retryer for worker", zap.Error(err))
 			}
 
-			worker := NewWorker(workerLogger, queue.NewWithClient(crawler.redisClient.Client, retryer), postgres.NewWithPool(crawler.postgresClient.Pool, crawler.postgresClient.Queries, retryer), crawler.httpClient, crawler.ctx, context.Background(), retryer)
+			worker := NewWorker(workerLogger, redis.NewWithClient(crawler.redisClient.Client, retryer), postgres.NewWithPool(crawler.postgresClient.Pool, crawler.postgresClient.Queries, retryer), crawler.httpClient, crawler.ctx, context.Background(), retryer)
 			worker.logger.Debug("Worker initialized")
 			worker.work()
 		}()
@@ -180,7 +180,7 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 			}
 		}
 
-		pipe.ZAddNX(crawler.ctx, queue.DomainPendingQueue, redis.Z{
+		pipe.ZAddNX(crawler.ctx, redis.DomainPendingQueue, redisLib.Z{
 			Member: domain,
 			Score:  float64(time.Now().Unix()),
 		})
@@ -214,7 +214,7 @@ func (worker *Worker) work() {
 		domain, err := worker.getNextDomain()
 		if err != nil {
 			switch err {
-			case redis.Nil:
+			case redisLib.Nil:
 				worker.logger.Info("No domains in queue")
 				continue
 			default:
@@ -263,7 +263,7 @@ func (worker *Worker) processDomain(domain string) (err error) {
 	for {
 		err = worker.crawlerCtx.Err()
 		if err != nil {
-			if err = worker.redisClient.ZAddNX(worker.workerCtx, queue.DomainPendingQueue, redis.Z{
+			if err = worker.redisClient.ZAddNX(worker.workerCtx, redis.DomainPendingQueue, redisLib.Z{
 				Member: domain,
 				Score:  float64(time.Now().Unix()),
 			}).Err(); err != nil {
@@ -279,7 +279,7 @@ func (worker *Worker) processDomain(domain string) (err error) {
 		}
 
 		url, err := worker.getNextUrlForDomain(domain)
-		if err == redis.Nil {
+		if err == redisLib.Nil {
 			worker.logger.Info("Domain's URL queue is empty")
 			break
 		}
@@ -328,7 +328,7 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 
 	worker.logger.Info("Checking politeness")
 	polite, err := robotRules.isPolite(worker.workerCtx, domain, worker.redisClient)
-	if err != nil && err != redis.Nil {
+	if err != nil && err != redisLib.Nil {
 		return err
 	}
 	if !polite {
@@ -353,7 +353,7 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 
 func (worker *Worker) discardJob(url string) error {
 	worker.logger.Info("Discarding URL")
-	return worker.redisClient.ZRem(worker.workerCtx, queue.UrlsProcessingQueue, url).Err()
+	return worker.redisClient.ZRem(worker.workerCtx, redis.UrlsProcessingQueue, url).Err()
 }
 
 // func (worker *Worker) requeueJobs(jobs ...redis.Z) error {
@@ -392,7 +392,7 @@ func (worker *Worker) updateQueuesAndStorage(url string, htmlContent *[]byte, li
 }
 
 func (worker *Worker) getNextDomain() (string, error) {
-	domainWithScore, err := worker.redisClient.BZPopMin(worker.workerCtx, 15*time.Second, queue.DomainPendingQueue).Result()
+	domainWithScore, err := worker.redisClient.BZPopMin(worker.workerCtx, 15*time.Second, redis.DomainPendingQueue).Result()
 	if err != nil {
 		return "", err
 	}
@@ -408,7 +408,7 @@ func (worker *Worker) getNextUrlForDomain(domain string) (string, error) {
 
 	url := result[1]
 
-	err = worker.redisClient.ZAdd(worker.workerCtx, queue.UrlsProcessingQueue, redis.Z{
+	err = worker.redisClient.ZAdd(worker.workerCtx, redis.UrlsProcessingQueue, redisLib.Z{
 		Score:  float64(time.Now().Unix()),
 		Member: url,
 	}).Err()
@@ -435,8 +435,8 @@ func (worker *Worker) updateQueues(htmlContent *[]byte, url string, id int64) er
 
 	pipe := worker.redisClient.Pipeline()
 	pipe.Set(worker.workerCtx, url, payloadJSON, 0)
-	pipe.LPush(worker.workerCtx, queue.IndexPendingQueue, url)
-	pipe.ZRem(worker.workerCtx, queue.UrlsProcessingQueue, url)
+	pipe.LPush(worker.workerCtx, redis.IndexPendingQueue, url)
+	pipe.ZRem(worker.workerCtx, redis.UrlsProcessingQueue, url)
 
 	err = worker.retryer.Do(worker.workerCtx, func() error {
 		_, err := pipe.Exec(worker.workerCtx)
@@ -456,7 +456,7 @@ func (worker *Worker) getRobotRules(domain string) (*RobotRules, error) {
 	worker.logger.Debug("Getting robot rules")
 
 	cacheResult, err := worker.redisClient.Get(worker.workerCtx, cacheKey).Result()
-	if err != nil && !errors.Is(err, redis.Nil) {
+	if err != nil && !errors.Is(err, redisLib.Nil) {
 		return nil, err
 	}
 
