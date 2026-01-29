@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"indexer/internals/config"
 	"indexer/internals/indexer"
 	"indexer/internals/queue"
+	"indexer/internals/utils"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,12 +18,21 @@ import (
 )
 
 func main() {
+	dev := flag.Bool("dev", false, "Enable development environment behavior")
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
 	envPath := flag.String("env", ".env", "Path to env variables file")
 	flag.Parse()
 
-	//TODO add dev flag for dev logger
 	logger := zap.Must(zap.NewProduction())
+	if *dev {
+		logger = zap.Must(zap.NewDevelopment())
+	}
+
+	defer func() {
+		if deferErr := logger.Sync(); deferErr != nil && !errors.Is(deferErr, syscall.EINVAL) {
+			logger.Error("Failed to sync logger", zap.Error(deferErr))
+		}
+	}()
 
 	ctx := context.Background()
 
@@ -34,6 +45,11 @@ func main() {
 		}
 	}
 	logger.Debug("Config loaded")
+
+	logger, err = utils.NewConfiguredLogger(dev, cfg)
+	if err != nil {
+		logger.Fatal("Failed to configure logger", zap.Error(err))
+	}
 
 	err = godotenv.Load(*envPath)
 	if err != nil {
@@ -62,6 +78,7 @@ func main() {
 		logger.Fatal("Failed to connect to PostgreSQL", zap.Error(err))
 	}
 	logger.Debug("PostgreSQL client initialized")
+
 	defer dbPool.Close()
 
 	sigChan := make(chan os.Signal, 1)
