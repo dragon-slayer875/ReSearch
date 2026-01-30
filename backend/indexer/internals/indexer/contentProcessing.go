@@ -9,6 +9,7 @@ import (
 
 	"github.com/RoaringBitmap/roaring/v2/roaring64"
 	snowball "github.com/snowballstem/snowball/go"
+	"go.uber.org/zap"
 	"golang.org/x/net/html"
 )
 
@@ -19,7 +20,9 @@ type processedJob struct {
 	description      string
 }
 
-func (i *Indexer) processJob(job *queue.IndexJob) (*processedJob, error) {
+func (w *Worker) processJob(job *queue.IndexJob) (*processedJob, error) {
+	w.logger.Info("Processing job", zap.Int64("id", job.JobId))
+
 	tokenizer := html.NewTokenizer(bytes.NewBufferString(job.HtmlContent))
 	var textContent string
 	result := processedJob{}
@@ -30,7 +33,7 @@ func (i *Indexer) processJob(job *queue.IndexJob) (*processedJob, error) {
 		switch tokenType {
 		case html.ErrorToken:
 			result.rawTextContent = textContent
-			cleanedTextContent := i.removeStopWords(strings.FieldsFunc(textContent, func(r rune) bool {
+			cleanedTextContent := w.removeStopWords(strings.FieldsFunc(textContent, func(r rune) bool {
 				// Split on punctuation except apostrophes, or whitespace
 				if unicode.IsSpace(r) {
 					return true
@@ -40,7 +43,7 @@ func (i *Indexer) processJob(job *queue.IndexJob) (*processedJob, error) {
 				}
 				return false
 			}))
-			stemmedTextContent := i.stemWords(cleanedTextContent)
+			stemmedTextContent := w.stemWords(cleanedTextContent)
 			result.cleanTextContent = stemmedTextContent
 			return &result, tokenizer.Err() // if err is io.eof then indicates End of the document
 		case html.StartTagToken, html.SelfClosingTagToken:
@@ -74,7 +77,7 @@ func (i *Indexer) processJob(job *queue.IndexJob) (*processedJob, error) {
 
 }
 
-func (i *Indexer) removeStopWords(content []string) []string {
+func (w *Worker) removeStopWords(content []string) []string {
 	var filteredWords []string
 
 	for _, word := range content {
@@ -87,7 +90,7 @@ func (i *Indexer) removeStopWords(content []string) []string {
 	return filteredWords
 }
 
-func (i *Indexer) stemWords(content []string) []string {
+func (w *Worker) stemWords(content []string) []string {
 	var stemmedWords []string
 	env := snowball.NewEnv("")
 	english.Stem(env)
@@ -113,7 +116,7 @@ type InvertedIndex struct {
 	DocFreq   int64             `json:"doc_freq"`   // Document frequency
 }
 
-func (i *Indexer) createPostingsList(cleanedTextContent []string, docId int64) (*map[string]*Posting, error) {
+func (w *Worker) createPostingsList(cleanedTextContent []string, docId int64) (*map[string]*Posting, error) {
 	postingsList := make(map[string]*Posting)
 
 	for pos, word := range cleanedTextContent {
