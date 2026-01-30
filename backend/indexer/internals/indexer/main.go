@@ -3,18 +3,15 @@ package indexer
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"indexer/internals/queue"
 	"indexer/internals/storage/database"
+	"indexer/internals/storage/redis"
 	"io"
-
-	// "strconv"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
+	redisLib "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -33,10 +30,6 @@ type Worker struct {
 	indexerCtx  context.Context
 	workerCtx   context.Context
 }
-
-var (
-	errNoJobs = errors.New("no jobs available")
-)
 
 func NewIndexer(logger *zap.Logger, workerCount int, redisClient *redis.Client, dbPool *pgxpool.Pool, ctx context.Context) *Indexer {
 	return &Indexer{
@@ -124,16 +117,20 @@ func (w *Worker) work() {
 			w.logger.Fatal("Context error found, indexer shutting down", zap.Error(err))
 		}
 
-		jobDetailsStr, err := w.getNextJob()
+		jobDetailsStr, err := w.getNextUrl()
 		if err != nil {
-			w.logger.Error("Error getting job", zap.Error(err))
-			continue
+			switch err {
+			case redisLib.Nil:
+				w.logger.Info("No jobs in queue")
+				continue
+			default:
+				w.logger.Fatal("Failed to get next job", zap.Error(err))
+			}
 		}
 
-		job := &queue.IndexJob{}
+		job := &redis.IndexJob{}
 		if err := json.Unmarshal([]byte(jobDetailsStr), job); err != nil {
-			w.logger.Error("Error unmarshaling job", zap.Error(err))
-			continue
+			w.logger.Fatal("Failed to unmarshal job", zap.Error(err))
 		}
 
 		processedJob, err := w.processJob(job)
@@ -179,34 +176,31 @@ func (i *Indexer) tfIdfUpdater() {
 	}
 }
 
-func (w *Worker) getNextJob() (string, error) {
-	result, err := w.redisClient.BRPop(w.workerCtx, time.Second*20, queue.PendingQueue).Result()
+func (w *Worker) getNextUrl() (string, error) {
+	result, err := w.redisClient.BRPop(w.workerCtx, time.Second*20, redis.PendingQueue).Result()
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return "", errNoJobs
-		}
 		return "", err
 	}
 
-	// 1 is job, 0 is queue name
-	job := result[1]
+	// 1 is url, 0 is queue name
+	url := result[1]
 
 	pipe := w.redisClient.Pipeline()
-	pipe.ZAdd(w.workerCtx, queue.ProcessingQueue, redis.Z{
+	pipe.ZAdd(w.workerCtx, redis.ProcessingQueue, redisLib.Z{
 		Score:  float64(time.Now().Unix()),
-		Member: job,
+		Member: url,
 	})
 
-	getCmd := pipe.Get(w.workerCtx, job)
+	getCmd := pipe.Get(w.workerCtx, url)
 
 	_, err = pipe.Exec(w.workerCtx)
 	if err != nil {
-		return "", fmt.Errorf("failed to get next job: %w", err)
+		return "", err
 	}
 
 	jobDetailsStr, err := getCmd.Result()
 	if err != nil {
-		return "", fmt.Errorf("failed to get job details: %w", err)
+		return "", err
 	}
 
 	return jobDetailsStr, nil
@@ -254,7 +248,7 @@ func (w *Worker) updateQueuesAndStorage(postingsList *map[string]*Posting, jobUr
 		return fmt.Errorf("failed to word data: %w", err)
 	}
 
-	err = w.redisClient.ZRem(w.workerCtx, queue.ProcessingQueue, jobUrl).Err()
+	err = w.redisClient.ZRem(w.workerCtx, redis.ProcessingQueue, jobUrl).Err()
 	if err != nil {
 		return fmt.Errorf("failed to queue updates: %w", err)
 	}

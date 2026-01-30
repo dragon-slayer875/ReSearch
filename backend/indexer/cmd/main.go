@@ -6,7 +6,8 @@ import (
 	"flag"
 	"indexer/internals/config"
 	"indexer/internals/indexer"
-	"indexer/internals/queue"
+	"indexer/internals/retry"
+	"indexer/internals/storage/redis"
 	"indexer/internals/utils"
 	"os"
 	"os/signal"
@@ -62,9 +63,19 @@ func main() {
 	}
 	logger.Debug("env variables loaded")
 
-	redisClient, err := queue.NewRedisClient(os.Getenv("REDIS_URL"))
+	retryer, err := retry.New(
+		cfg.Retryer.MaxRetries,
+		cfg.Retryer.InitialBackoff,
+		cfg.Retryer.MaxBackoff,
+		cfg.Retryer.BackoffMultiplier,
+		logger.Named("Retryer"))
 	if err != nil {
-		logger.Fatal("Failed to initialize redis client:", zap.Error(err))
+		logger.Fatal("Failed to initialize retryer", zap.Error(err))
+	}
+
+	redisClient, err := redis.New(ctx, os.Getenv("REDIS_URL"), retryer)
+	if err != nil {
+		logger.Fatal("Failed to initialize redis client", zap.Error(err))
 	}
 	logger.Debug("Redis client initialized")
 

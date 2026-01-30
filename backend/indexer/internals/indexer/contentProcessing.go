@@ -2,8 +2,8 @@ package indexer
 
 import (
 	"bytes"
-	"indexer/internals/queue"
 	english "indexer/internals/snowball"
+	"indexer/internals/storage/redis"
 	"strings"
 	"unicode"
 
@@ -20,7 +20,7 @@ type processedJob struct {
 	description      string
 }
 
-func (w *Worker) processJob(job *queue.IndexJob) (*processedJob, error) {
+func (w *Worker) processJob(job *redis.IndexJob) (*processedJob, error) {
 	w.logger.Info("Processing job", zap.Int64("id", job.JobId))
 
 	tokenizer := html.NewTokenizer(bytes.NewBufferString(job.HtmlContent))
