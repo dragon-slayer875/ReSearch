@@ -8,6 +8,7 @@ import (
 	"indexer/internals/queue"
 	"indexer/internals/storage/database"
 	"io"
+
 	// "strconv"
 	"sync"
 	"time"
@@ -29,7 +30,8 @@ type Worker struct {
 	logger      *zap.Logger
 	redisClient *redis.Client
 	dbPool      *pgxpool.Pool
-	ctx         context.Context
+	indexerCtx  context.Context
+	workerCtx   context.Context
 }
 
 var (
@@ -46,12 +48,13 @@ func NewIndexer(logger *zap.Logger, workerCount int, redisClient *redis.Client, 
 	}
 }
 
-func NewWorker(logger *zap.Logger, redisClient *redis.Client, dbPool *pgxpool.Pool, ctx context.Context) *Worker {
+func NewWorker(logger *zap.Logger, redisClient *redis.Client, dbPool *pgxpool.Pool, indexerCtx context.Context, workerCtx context.Context) *Worker {
 	return &Worker{
 		logger,
 		redisClient,
 		dbPool,
-		ctx,
+		indexerCtx,
+		workerCtx,
 	}
 }
 
@@ -63,7 +66,7 @@ func (i *Indexer) Start() {
 		go func() {
 			defer wg.Done()
 
-			worker := NewWorker(i.logger.Named(fmt.Sprintf("worker %d", idx)), i.redisClient, i.dbPool, i.ctx)
+			worker := NewWorker(i.logger.Named(fmt.Sprintf("worker %d", idx)), i.redisClient, i.dbPool, i.ctx, context.Background())
 			worker.logger.Debug("Worker initialized")
 			worker.work()
 		}()
@@ -113,6 +116,14 @@ func (i *Indexer) Start() {
 
 func (w *Worker) work() {
 	for {
+		err := w.indexerCtx.Err()
+		if err == context.Canceled {
+			w.logger.Info("Worker shutting down")
+			break
+		} else if err != nil {
+			w.logger.Fatal("Context error found, indexer shutting down", zap.Error(err))
+		}
+
 		jobDetailsStr, err := w.getNextJob()
 		if err != nil {
 			w.logger.Error("Error getting job", zap.Error(err))
@@ -148,20 +159,28 @@ func (w *Worker) work() {
 
 func (i *Indexer) tfIdfUpdater() {
 	queries := database.New(i.dbPool)
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
 	for {
-		time.Sleep(5 * time.Minute)
-		i.logger.Info("Starting tf-idf updates")
-		err := queries.UpdateTfIdf(i.ctx)
-		if err != nil {
-			i.logger.Error("Error updating tf-idf:", zap.Error(err))
-			continue
+		select {
+		case <-i.ctx.Done():
+			i.logger.Info("Tf-idf updater shutting down")
+			return
+
+		case <-ticker.C:
+			err := queries.UpdateTfIdf(i.ctx)
+			if err != nil {
+				i.logger.Error("Error updating tf-idf:", zap.Error(err))
+				continue
+			}
+			i.logger.Info("tf-idf updates complete")
 		}
-		i.logger.Info("tf-idf updates complete")
 	}
 }
 
 func (w *Worker) getNextJob() (string, error) {
-	result, err := w.redisClient.BRPop(w.ctx, time.Second*20, queue.PendingQueue).Result()
+	result, err := w.redisClient.BRPop(w.workerCtx, time.Second*20, queue.PendingQueue).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
 			return "", errNoJobs
@@ -173,14 +192,14 @@ func (w *Worker) getNextJob() (string, error) {
 	job := result[1]
 
 	pipe := w.redisClient.Pipeline()
-	pipe.ZAdd(w.ctx, queue.ProcessingQueue, redis.Z{
+	pipe.ZAdd(w.workerCtx, queue.ProcessingQueue, redis.Z{
 		Score:  float64(time.Now().Unix()),
 		Member: job,
 	})
 
-	getCmd := pipe.Get(w.ctx, job)
+	getCmd := pipe.Get(w.workerCtx, job)
 
-	_, err = pipe.Exec(w.ctx)
+	_, err = pipe.Exec(w.workerCtx)
 	if err != nil {
 		return "", fmt.Errorf("failed to get next job: %w", err)
 	}
@@ -210,17 +229,17 @@ func (w *Worker) updateQueuesAndStorage(postingsList *map[string]*Posting, jobUr
 		wordDataBatch = append(wordDataBatch, *postingSerialized)
 	}
 
-	tx, err := w.dbPool.Begin(w.ctx)
+	tx, err := w.dbPool.Begin(w.workerCtx)
 	if err != nil {
 		return err
 	}
 
-	defer tx.Rollback(w.ctx)
+	defer tx.Rollback(w.workerCtx)
 
 	queries := database.New(w.dbPool)
 	queriesWithTx := queries.WithTx(tx)
 
-	err = queriesWithTx.InsertUrlData(w.ctx, database.InsertUrlDataParams{
+	err = queriesWithTx.InsertUrlData(w.workerCtx, database.InsertUrlDataParams{
 		UrlID:       jobId,
 		Title:       processedJob.title,
 		Description: processedJob.description,
@@ -230,17 +249,17 @@ func (w *Worker) updateQueuesAndStorage(postingsList *map[string]*Posting, jobUr
 		return fmt.Errorf("failed to insert URL data: %w", err)
 	}
 
-	_, err = queriesWithTx.BatchInsertWordData(w.ctx, wordDataBatch)
+	_, err = queriesWithTx.BatchInsertWordData(w.workerCtx, wordDataBatch)
 	if err != nil {
 		return fmt.Errorf("failed to word data: %w", err)
 	}
 
-	err = w.redisClient.ZRem(w.ctx, queue.ProcessingQueue, jobUrl).Err()
+	err = w.redisClient.ZRem(w.workerCtx, queue.ProcessingQueue, jobUrl).Err()
 	if err != nil {
 		return fmt.Errorf("failed to queue updates: %w", err)
 	}
 
-	return tx.Commit(w.ctx)
+	return tx.Commit(w.workerCtx)
 }
 
 // func (w *Worker) requeueJob(job string) error {

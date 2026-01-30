@@ -34,7 +34,8 @@ func main() {
 		}
 	}()
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -87,7 +88,7 @@ func main() {
 	go func() {
 		<-sigChan
 		logger.Info("Received shutdown signal, exiting...")
-		os.Exit(0)
+		cancel()
 	}()
 
 	indexer := indexer.NewIndexer(logger, cfg.Indexer.WorkerCount, redisClient, dbPool, ctx)
