@@ -9,7 +9,6 @@ import (
 
 	"github.com/RoaringBitmap/roaring/v2/roaring64"
 	snowball "github.com/snowballstem/snowball/go"
-	"go.uber.org/zap"
 	"golang.org/x/net/html"
 )
 
@@ -21,59 +20,72 @@ type processedJob struct {
 }
 
 func (w *Worker) processJob(job *redis.IndexJob) (*processedJob, error) {
-	w.logger.Info("Processing job", zap.Int64("id", job.JobId))
+	w.logger.Info("Processing job")
 
-	tokenizer := html.NewTokenizer(bytes.NewBufferString(job.HtmlContent))
+	doc, err := html.Parse(bytes.NewBufferString(job.HtmlContent))
+	if err != nil {
+		return nil, err
+	}
+
 	var textContent string
 	result := processedJob{}
 
-	for {
-		tokenType := tokenizer.Next()
-
-		switch tokenType {
-		case html.ErrorToken:
-			result.rawTextContent = textContent
-			cleanedTextContent := w.removeStopWords(strings.FieldsFunc(textContent, func(r rune) bool {
-				// Split on punctuation except apostrophes, or whitespace
-				if unicode.IsSpace(r) {
-					return true
-				}
-				if unicode.IsPunct(r) && r != '\'' {
-					return true
-				}
-				return false
-			}))
-			stemmedTextContent := w.stemWords(cleanedTextContent)
-			result.cleanTextContent = stemmedTextContent
-			return &result, tokenizer.Err() // if err is io.eof then indicates End of the document
-		case html.StartTagToken, html.SelfClosingTagToken:
-			token := tokenizer.Token()
-			switch token.Data {
-			case "script", "noscript", "style":
-				tokenizer.Next() // Skip the content of non text tags
+	for descendant := range doc.Descendants() {
+		if descendant.Type == html.ElementNode {
+			switch descendant.Data {
 			case "title":
-				tokenizer.Next()
-				result.title = string(tokenizer.Text())
+				result.title = string(descendant.FirstChild.Data)
 			case "meta":
-				key := ""
-				for _, attr := range token.Attr {
+				key := false
+			attr_loop:
+				for _, attr := range descendant.Attr {
 					switch attr.Key {
 					case "name":
 						if attr.Val == "description" {
-							key = "d"
+							key = true
+						} else {
+							break attr_loop
 						}
 					case "content":
-						if key == "d" {
+						if key {
 							result.description = attr.Val
 						}
 					}
 				}
+			case "main":
+				for mainDescendant := range descendant.Descendants() {
+					switch mainDescendant.Data {
+					case "p", "h1", "h2", "h3", "h4", "h5", "h6", "h7", "blockquote":
+						for textDescendant := range mainDescendant.Descendants() {
+							if textDescendant.Parent.Data == "annotation" {
+								continue
+							}
+							if textDescendant.Type == html.TextNode {
+								textContent += " " + textDescendant.Data
+							}
+						}
+					}
+				}
+
 			}
-		case html.TextToken:
-			token := tokenizer.Token()
-			textContent += " " + token.Data
 		}
 	}
+
+	result.rawTextContent = textContent
+	cleanedTextContent := w.removeStopWords(strings.FieldsFunc(textContent, func(r rune) bool {
+		// Split on punctuation except apostrophes, or whitespace
+		if unicode.IsSpace(r) {
+			return true
+		}
+		if unicode.IsPunct(r) && r != '\'' {
+			return true
+		}
+		return false
+	}))
+	stemmedTextContent := w.stemWords(cleanedTextContent)
+	result.cleanTextContent = stemmedTextContent
+
+	return &result, nil
 
 }
 

@@ -117,15 +117,23 @@ func (w *Worker) work() {
 			w.logger.Fatal("Context error found, indexer shutting down", zap.Error(err))
 		}
 
-		jobDetailsStr, err := w.getNextUrl()
+		url, err := w.getNextUrl()
 		if err != nil {
 			switch err {
 			case redisLib.Nil:
 				w.logger.Info("No jobs in queue")
 				continue
 			default:
-				w.logger.Fatal("Failed to get next job", zap.Error(err))
+				w.logger.Fatal("Failed to get url", zap.Error(err))
 			}
+		}
+
+		loggerWithoutUrl := w.logger
+		w.logger = w.logger.With(zap.String("url", url))
+
+		jobDetailsStr, err := w.getUrlContent(url)
+		if err != nil {
+			w.logger.Fatal("Failed to get url contents", zap.Error(err))
 		}
 
 		job := &redis.IndexJob{}
@@ -151,6 +159,8 @@ func (w *Worker) work() {
 		}
 
 		w.logger.Info("Successfully processed job:", zap.Int64("id", job.JobId))
+
+		w.logger = loggerWithoutUrl
 	}
 }
 
@@ -185,6 +195,10 @@ func (w *Worker) getNextUrl() (string, error) {
 	// 1 is url, 0 is queue name
 	url := result[1]
 
+	return url, nil
+}
+
+func (w *Worker) getUrlContent(url string) (string, error) {
 	pipe := w.redisClient.Pipeline()
 	pipe.ZAdd(w.workerCtx, redis.ProcessingQueue, redisLib.Z{
 		Score:  float64(time.Now().Unix()),
@@ -193,17 +207,12 @@ func (w *Worker) getNextUrl() (string, error) {
 
 	getCmd := pipe.Get(w.workerCtx, url)
 
-	_, err = pipe.Exec(w.workerCtx)
+	_, err := pipe.Exec(w.workerCtx)
 	if err != nil {
 		return "", err
 	}
 
-	jobDetailsStr, err := getCmd.Result()
-	if err != nil {
-		return "", err
-	}
-
-	return jobDetailsStr, nil
+	return getCmd.Result()
 }
 
 func (w *Worker) updateQueuesAndStorage(postingsList *map[string]*Posting, jobUrl string, jobId int64, processedJob *processedJob) error {
