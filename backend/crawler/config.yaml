@@ -11,3 +11,9 @@ logging:
   encoding: "json" # "json" / "console"
   output_paths: # "stderr" / "stdout" / "<absolute/file/path>" / "<relative/file/path>"
     - "stderr"
+
+retryer:
+  max_retries: 5
+  initial_backoff: "500ms"
+  max_backoff: "30s"
+  backoff_multiplier: 2
