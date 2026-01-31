@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"indexer/internals/config"
+	"indexer/internals/retry"
 	"indexer/internals/storage/database"
 	"indexer/internals/storage/redis"
-	"io"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ type Indexer struct {
 	redisClient *redis.Client
 	dbPool      *pgxpool.Pool
 	ctx         context.Context
+	retryerCfg  *config.RetryerConfig
 }
 
 type Worker struct {
@@ -31,13 +33,14 @@ type Worker struct {
 	workerCtx   context.Context
 }
 
-func NewIndexer(logger *zap.Logger, workerCount int, redisClient *redis.Client, dbPool *pgxpool.Pool, ctx context.Context) *Indexer {
+func NewIndexer(logger *zap.Logger, workerCount int, redisClient *redis.Client, dbPool *pgxpool.Pool, ctx context.Context, retryerCfg *config.RetryerConfig) *Indexer {
 	return &Indexer{
 		logger,
 		workerCount,
 		redisClient,
 		dbPool,
 		ctx,
+		retryerCfg,
 	}
 }
 
@@ -59,7 +62,19 @@ func (i *Indexer) Start() {
 		go func() {
 			defer wg.Done()
 
-			worker := NewWorker(i.logger.Named(fmt.Sprintf("worker %d", idx)), i.redisClient, i.dbPool, i.ctx, context.Background())
+			workerLogger := i.logger.Named(fmt.Sprintf("worker %d", idx))
+
+			retryer, err := retry.New(
+				i.retryerCfg.MaxRetries,
+				i.retryerCfg.InitialBackoff,
+				i.retryerCfg.MaxBackoff,
+				i.retryerCfg.BackoffMultiplier,
+				workerLogger.Named("retryer"))
+			if err != nil {
+				i.logger.Fatal("Failed to initialize retryer for worker", zap.Error(err))
+			}
+
+			worker := NewWorker(workerLogger, redis.NewWithClient(i.redisClient.Client, retryer), i.dbPool, i.ctx, context.Background())
 			worker.logger.Debug("Worker initialized")
 			worker.work()
 		}()
@@ -121,7 +136,7 @@ func (w *Worker) work() {
 		if err != nil {
 			switch err {
 			case redisLib.Nil:
-				w.logger.Info("No jobs in queue")
+				w.logger.Info("No urls in queue")
 				continue
 			default:
 				w.logger.Fatal("Failed to get url", zap.Error(err))
@@ -131,9 +146,9 @@ func (w *Worker) work() {
 		loggerWithoutUrl := w.logger
 		w.logger = w.logger.With(zap.String("url", url))
 
-		jobDetailsStr, err := w.getUrlContent(url)
+		jobDetailsStr, err := w.redisClient.GetUrlContent(w.workerCtx, url)
 		if err != nil {
-			w.logger.Fatal("Failed to get url contents", zap.Error(err))
+			w.logger.Fatal("Failed to get url contents. Add url to crawl queue again", zap.Error(err))
 		}
 
 		job := &redis.IndexJob{}
@@ -141,9 +156,11 @@ func (w *Worker) work() {
 			w.logger.Fatal("Failed to unmarshal job", zap.Error(err))
 		}
 
+		w.logger.Info("Processing url")
+
 		processedJob, err := w.processJob(job)
-		if err != nil && err != io.EOF {
-			w.logger.Error("Error processing job", zap.Error(err), zap.String("url", job.Url))
+		if err != nil {
+			w.logger.Error("Error processing webpage", zap.Error(err))
 			continue
 		}
 
@@ -178,7 +195,7 @@ func (i *Indexer) tfIdfUpdater() {
 		case <-ticker.C:
 			err := queries.UpdateTfIdf(i.ctx)
 			if err != nil {
-				i.logger.Error("Error updating tf-idf:", zap.Error(err))
+				i.logger.Error("Error updating tf-idf", zap.Error(err))
 				continue
 			}
 			i.logger.Info("tf-idf updates complete")
@@ -196,23 +213,6 @@ func (w *Worker) getNextUrl() (string, error) {
 	url := result[1]
 
 	return url, nil
-}
-
-func (w *Worker) getUrlContent(url string) (string, error) {
-	pipe := w.redisClient.Pipeline()
-	pipe.ZAdd(w.workerCtx, redis.ProcessingQueue, redisLib.Z{
-		Score:  float64(time.Now().Unix()),
-		Member: url,
-	})
-
-	getCmd := pipe.Get(w.workerCtx, url)
-
-	_, err := pipe.Exec(w.workerCtx)
-	if err != nil {
-		return "", err
-	}
-
-	return getCmd.Result()
 }
 
 func (w *Worker) updateQueuesAndStorage(postingsList *map[string]*Posting, jobUrl string, jobId int64, processedJob *processedJob) error {

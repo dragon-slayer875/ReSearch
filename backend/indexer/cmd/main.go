@@ -102,7 +102,7 @@ func main() {
 		cancel()
 	}()
 
-	indexer := indexer.NewIndexer(logger, cfg.Indexer.WorkerCount, redisClient, dbPool, ctx)
+	indexer := indexer.NewIndexer(logger, cfg.Indexer.WorkerCount, redisClient, dbPool, ctx, &cfg.Retryer)
 
 	logger.Info("Starting...")
 	indexer.Start()

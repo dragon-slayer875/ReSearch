@@ -177,3 +177,24 @@ func (rc *Client) HGet(ctx context.Context, key string, field string) *redis.Str
 
 	return redisCmd
 }
+
+func (rc *Client) GetUrlContent(ctx context.Context, url string) (string, error) {
+	pipe := rc.TxPipeline()
+	pipe.ZAdd(ctx, ProcessingQueue, redis.Z{
+		Score:  float64(time.Now().Unix()),
+		Member: url,
+	})
+
+	getCmd := pipe.Get(ctx, url)
+
+	err := rc.retryer.Do(ctx, func() error {
+		_, tryErr := pipe.Exec(ctx)
+		return tryErr
+	}, utils.IsRetryableRedisError)
+
+	if err != nil {
+		return "", err
+	}
+
+	return getCmd.Result()
+}
