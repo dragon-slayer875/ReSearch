@@ -3,6 +3,7 @@ package indexer
 import (
 	"bytes"
 	english "indexer/internals/snowball"
+	"indexer/internals/storage/postgres"
 	"indexer/internals/storage/redis"
 	"strings"
 	"unicode"
@@ -12,29 +13,20 @@ import (
 	"golang.org/x/net/html"
 )
 
-type processedJob struct {
-	rawTextContent   string
-	cleanTextContent []string
-	title            string
-	description      string
-}
-
-func (w *Worker) processJob(job *redis.IndexJob) (*processedJob, error) {
-	w.logger.Info("Processing job")
-
+func (w *Worker) processWebpage(job *redis.IndexJob) (*postgres.ProcessedJob, error) {
 	doc, err := html.Parse(bytes.NewBufferString(job.HtmlContent))
 	if err != nil {
 		return nil, err
 	}
 
 	var textContent string
-	result := processedJob{}
+	result := postgres.ProcessedJob{}
 
 	for descendant := range doc.Descendants() {
 		if descendant.Type == html.ElementNode {
 			switch descendant.Data {
 			case "title":
-				result.title = string(descendant.FirstChild.Data)
+				result.Title = string(descendant.FirstChild.Data)
 			case "meta":
 				key := false
 			attr_loop:
@@ -48,7 +40,7 @@ func (w *Worker) processJob(job *redis.IndexJob) (*processedJob, error) {
 						}
 					case "content":
 						if key {
-							result.description = attr.Val
+							result.Description = attr.Val
 						}
 					}
 				}
@@ -71,7 +63,7 @@ func (w *Worker) processJob(job *redis.IndexJob) (*processedJob, error) {
 		}
 	}
 
-	result.rawTextContent = textContent
+	result.RawTextContent = textContent[:100]
 	cleanedTextContent := w.removeStopWords(strings.FieldsFunc(textContent, func(r rune) bool {
 		// Split on punctuation except apostrophes, or whitespace
 		if unicode.IsSpace(r) {
@@ -83,7 +75,7 @@ func (w *Worker) processJob(job *redis.IndexJob) (*processedJob, error) {
 		return false
 	}))
 	stemmedTextContent := w.stemWords(cleanedTextContent)
-	result.cleanTextContent = stemmedTextContent
+	result.CleanTextContent = stemmedTextContent
 
 	return &result, nil
 

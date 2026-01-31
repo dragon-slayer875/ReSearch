@@ -7,48 +7,48 @@ import (
 	"indexer/internals/config"
 	"indexer/internals/retry"
 	"indexer/internals/storage/database"
+	"indexer/internals/storage/postgres"
 	"indexer/internals/storage/redis"
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	redisLib "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
 type Indexer struct {
-	logger      *zap.Logger
-	workerCount int
-	redisClient *redis.Client
-	dbPool      *pgxpool.Pool
-	ctx         context.Context
-	retryerCfg  *config.RetryerConfig
+	logger         *zap.Logger
+	workerCount    int
+	redisClient    *redis.Client
+	postgresClient *postgres.Client
+	ctx            context.Context
+	retryerCfg     *config.RetryerConfig
 }
 
 type Worker struct {
-	logger      *zap.Logger
-	redisClient *redis.Client
-	dbPool      *pgxpool.Pool
-	indexerCtx  context.Context
-	workerCtx   context.Context
+	logger         *zap.Logger
+	redisClient    *redis.Client
+	postgresClient *postgres.Client
+	indexerCtx     context.Context
+	workerCtx      context.Context
 }
 
-func NewIndexer(logger *zap.Logger, workerCount int, redisClient *redis.Client, dbPool *pgxpool.Pool, ctx context.Context, retryerCfg *config.RetryerConfig) *Indexer {
+func NewIndexer(logger *zap.Logger, workerCount int, redisClient *redis.Client, postgresClient *postgres.Client, ctx context.Context, retryerCfg *config.RetryerConfig) *Indexer {
 	return &Indexer{
 		logger,
 		workerCount,
 		redisClient,
-		dbPool,
+		postgresClient,
 		ctx,
 		retryerCfg,
 	}
 }
 
-func NewWorker(logger *zap.Logger, redisClient *redis.Client, dbPool *pgxpool.Pool, indexerCtx context.Context, workerCtx context.Context) *Worker {
+func NewWorker(logger *zap.Logger, redisClient *redis.Client, postgresClient *postgres.Client, indexerCtx context.Context, workerCtx context.Context) *Worker {
 	return &Worker{
 		logger,
 		redisClient,
-		dbPool,
+		postgresClient,
 		indexerCtx,
 		workerCtx,
 	}
@@ -74,7 +74,7 @@ func (i *Indexer) Start() {
 				i.logger.Fatal("Failed to initialize retryer for worker", zap.Error(err))
 			}
 
-			worker := NewWorker(workerLogger, redis.NewWithClient(i.redisClient.Client, retryer), i.dbPool, i.ctx, context.Background())
+			worker := NewWorker(workerLogger, redis.NewWithClient(i.redisClient.Client, retryer), postgres.NewWithPool(i.postgresClient, retryer), i.ctx, context.Background())
 			worker.logger.Debug("Worker initialized")
 			worker.work()
 		}()
@@ -158,13 +158,13 @@ func (w *Worker) work() {
 
 		w.logger.Info("Processing url")
 
-		processedJob, err := w.processJob(job)
+		processedJob, err := w.processWebpage(job)
 		if err != nil {
 			w.logger.Error("Error processing webpage", zap.Error(err))
 			continue
 		}
 
-		postingsList, err := w.createPostingsList(processedJob.cleanTextContent, job.JobId)
+		postingsList, err := w.createPostingsList(processedJob.CleanTextContent, job.JobId)
 		if err != nil {
 			w.logger.Error("Error creating postings list", zap.String("url", job.Url), zap.Error(err))
 			continue
@@ -182,7 +182,6 @@ func (w *Worker) work() {
 }
 
 func (i *Indexer) tfIdfUpdater() {
-	queries := database.New(i.dbPool)
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
@@ -193,7 +192,7 @@ func (i *Indexer) tfIdfUpdater() {
 			return
 
 		case <-ticker.C:
-			err := queries.UpdateTfIdf(i.ctx)
+			err := i.postgresClient.UpdateTfIdf(i.ctx)
 			if err != nil {
 				i.logger.Error("Error updating tf-idf", zap.Error(err))
 				continue
@@ -215,13 +214,13 @@ func (w *Worker) getNextUrl() (string, error) {
 	return url, nil
 }
 
-func (w *Worker) updateQueuesAndStorage(postingsList *map[string]*Posting, jobUrl string, jobId int64, processedJob *processedJob) error {
+func (w *Worker) updateQueuesAndStorage(postingsList *map[string]*Posting, jobUrl string, jobId int64, processedJob *postgres.ProcessedJob) error {
 	wordDataBatch := make([]database.BatchInsertWordDataParams, 0)
 
 	for word, posting := range *postingsList {
 		positionsBytes, err := posting.Positions.ToBytes()
 		if err != nil {
-			return fmt.Errorf("failed to marshal positions for word %s: %w", word, err)
+			w.logger.Warn("Failed to marshal positions for word", zap.String("word", word), zap.Error(err))
 		}
 		postingSerialized := &database.BatchInsertWordDataParams{
 			Word:          word,
@@ -232,37 +231,12 @@ func (w *Worker) updateQueuesAndStorage(postingsList *map[string]*Posting, jobUr
 		wordDataBatch = append(wordDataBatch, *postingSerialized)
 	}
 
-	tx, err := w.dbPool.Begin(w.workerCtx)
+	err := w.postgresClient.UpdateStorage(w.workerCtx, jobId, &wordDataBatch, processedJob)
 	if err != nil {
 		return err
 	}
 
-	defer tx.Rollback(w.workerCtx)
-
-	queries := database.New(w.dbPool)
-	queriesWithTx := queries.WithTx(tx)
-
-	err = queriesWithTx.InsertUrlData(w.workerCtx, database.InsertUrlDataParams{
-		UrlID:       jobId,
-		Title:       processedJob.title,
-		Description: processedJob.description,
-		RawContent:  processedJob.rawTextContent})
-
-	if err != nil {
-		return fmt.Errorf("failed to insert URL data: %w", err)
-	}
-
-	_, err = queriesWithTx.BatchInsertWordData(w.workerCtx, wordDataBatch)
-	if err != nil {
-		return fmt.Errorf("failed to word data: %w", err)
-	}
-
-	err = w.redisClient.ZRem(w.workerCtx, redis.ProcessingQueue, jobUrl).Err()
-	if err != nil {
-		return fmt.Errorf("failed to queue updates: %w", err)
-	}
-
-	return tx.Commit(w.workerCtx)
+	return w.redisClient.ZRem(w.workerCtx, redis.ProcessingQueue, jobUrl).Err()
 }
 
 // func (w *Worker) requeueJob(job string) error {

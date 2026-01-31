@@ -7,13 +7,13 @@ import (
 	"indexer/internals/config"
 	"indexer/internals/indexer"
 	"indexer/internals/retry"
+	"indexer/internals/storage/postgres"
 	"indexer/internals/storage/redis"
 	"indexer/internals/utils"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 )
@@ -85,13 +85,12 @@ func main() {
 		}
 	}()
 
-	dbPool, err := pgxpool.New(ctx, os.Getenv("POSTGRES_URL"))
+	postgresClient, err := postgres.New(ctx, os.Getenv("POSTGRES_URL"), retryer)
 	if err != nil {
 		logger.Fatal("Failed to connect to PostgreSQL", zap.Error(err))
 	}
 	logger.Debug("PostgreSQL client initialized")
-
-	defer dbPool.Close()
+	defer postgresClient.Close()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
@@ -102,7 +101,7 @@ func main() {
 		cancel()
 	}()
 
-	indexer := indexer.NewIndexer(logger, cfg.Indexer.WorkerCount, redisClient, dbPool, ctx, &cfg.Retryer)
+	indexer := indexer.NewIndexer(logger, cfg.Indexer.WorkerCount, redisClient, postgresClient, ctx, &cfg.Retryer)
 
 	logger.Info("Starting...")
 	indexer.Start()
