@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"server/internals/config"
-	"server/internals/server"
+	"server/internals/router"
 	"server/internals/utils"
 	"syscall"
 
@@ -66,8 +66,6 @@ func main() {
 		UnescapePath: true,
 	})
 
-	QueryEngine := server.NewServer(app, logger, dbPool, ctx)
-
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
 
@@ -81,8 +79,12 @@ func main() {
 		os.Exit(0)
 	}()
 
+	api := app.Group("/api/v1")
+	router.SetupRoutes(api, dbPool)
+
 	logger.Info("Starting...")
-	err = QueryEngine.Start(fmt.Sprintf(":%s", cfg.QueryEngine.Port))
+
+	err = app.Listen(fmt.Sprintf(":%s", cfg.QueryEngine.Port))
 	if err != nil {
 		logger.Fatal("Failed to start server", zap.Error(err))
 	}
