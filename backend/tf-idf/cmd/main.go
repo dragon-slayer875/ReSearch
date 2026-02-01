@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"tf-idf/internals/config"
 	"tf-idf/internals/storage/database"
+	"tf-idf/internals/utils"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +19,7 @@ import (
 
 func main() {
 	dev := flag.Bool("dev", false, "Enable development environment behavior")
+	configPath := flag.String("config", "config.yaml", "Path to configuration file")
 	envPath := flag.String("env", ".env", "Path to env variables file")
 	flag.Parse()
 
@@ -34,7 +37,22 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	err := godotenv.Load(*envPath)
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logger.Debug("Config file not found")
+		} else {
+			logger.Fatal("Failed to load config", zap.Error(err))
+		}
+	}
+	logger.Debug("Config loaded")
+
+	logger, err = utils.NewConfiguredLogger(dev, cfg)
+	if err != nil {
+		logger.Fatal("Failed to configure logger", zap.Error(err))
+	}
+
+	err = godotenv.Load(*envPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			logger.Debug("env file not found")
@@ -48,7 +66,7 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to connect to PostgreSQL", zap.Error(err))
 	}
-	logger.Debug("PostgreSQL client initialized")
+	logger.Debug("PostgreSQL connection initialized")
 	defer dbPool.Close()
 
 	sigChan := make(chan os.Signal, 1)
@@ -73,10 +91,12 @@ func main() {
 
 		case <-ticker.C:
 			logger.Info("Updating tf-idf")
+
 			err := queries.UpdateTfIdf(ctx)
 			if err != nil {
 				logger.Fatal("Error updating tf-idf", zap.Error(err))
 			}
+
 			logger.Info("tf-idf updates complete")
 		}
 	}
