@@ -23,7 +23,11 @@ func New(ctx context.Context, connString string, retryer *retry.Retryer) (*Clien
 		var tryErr error
 		pool, tryErr = pgxpool.New(ctx, connString)
 
-		return tryErr
+		if tryErr != nil {
+			return tryErr
+		}
+
+		return pool.Ping(ctx)
 	}, utils.IsRetryablePostgresError)
 
 	if err != nil {
