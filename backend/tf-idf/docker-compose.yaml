@@ -1,0 +1,6 @@
+services:
+  research-tf-idf:
+    build: .
+    env_file: ".env"
+    deploy:
+      replicas: 1
