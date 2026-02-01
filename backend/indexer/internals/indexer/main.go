@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"indexer/internals/config"
+	"indexer/internals/contentProcessing"
 	"indexer/internals/retry"
 	"indexer/internals/storage/database"
 	"indexer/internals/storage/postgres"
 	"indexer/internals/storage/redis"
+	"indexer/internals/utils"
 	"sync"
 	"time"
 
@@ -158,13 +160,13 @@ func (w *Worker) work() {
 
 		w.logger.Info("Processing url")
 
-		processedJob, err := w.processWebpage(job)
+		processedJob, err := contentProcessing.ProcessWebpage(job)
 		if err != nil {
 			w.logger.Error("Error processing webpage", zap.Error(err))
 			continue
 		}
 
-		postingsList, err := w.createPostingsList(processedJob.CleanTextContent, job.JobId)
+		postingsList, err := utils.CreatePostingsList(processedJob.CleanTextContent, job.JobId)
 		if err != nil {
 			w.logger.Error("Error creating postings list", zap.String("url", job.Url), zap.Error(err))
 			continue
@@ -214,7 +216,7 @@ func (w *Worker) getNextUrl() (string, error) {
 	return url, nil
 }
 
-func (w *Worker) updateQueuesAndStorage(postingsList *map[string]*Posting, jobUrl string, jobId int64, processedJob *postgres.ProcessedJob) error {
+func (w *Worker) updateQueuesAndStorage(postingsList *map[string]*utils.Posting, jobUrl string, jobId int64, processedJob *postgres.ProcessedJob) error {
 	wordDataBatch := make([]database.BatchInsertWordDataParams, 0)
 
 	for word, posting := range *postingsList {

@@ -1,4 +1,4 @@
-package indexer
+package contentProcessing
 
 var stopWordsEnglish = map[string]struct{}{
 	"0":          {},

@@ -1,19 +1,18 @@
-package indexer
+package contentProcessing
 
 import (
-	"bytes"
 	english "indexer/internals/snowball"
-	"indexer/internals/storage/postgres"
-	"indexer/internals/storage/redis"
 	"strings"
 	"unicode"
 
-	"github.com/RoaringBitmap/roaring/v2/roaring64"
+	"bytes"
 	snowball "github.com/snowballstem/snowball/go"
 	"golang.org/x/net/html"
+	"indexer/internals/storage/postgres"
+	"indexer/internals/storage/redis"
 )
 
-func (w *Worker) processWebpage(job *redis.IndexJob) (*postgres.ProcessedJob, error) {
+func ProcessWebpage(job *redis.IndexJob) (*postgres.ProcessedJob, error) {
 	doc, err := html.Parse(bytes.NewBufferString(job.HtmlContent))
 	if err != nil {
 		return nil, err
@@ -68,7 +67,7 @@ func (w *Worker) processWebpage(job *redis.IndexJob) (*postgres.ProcessedJob, er
 		result.RawTextContent = textContent[:100]
 	}
 
-	cleanedTextContent := w.removeStopWords(strings.FieldsFunc(textContent, func(r rune) bool {
+	cleanedTextContent := removeStopWords(strings.FieldsFunc(textContent, func(r rune) bool {
 		// Split on punctuation except apostrophes, or whitespace
 		if unicode.IsSpace(r) {
 			return true
@@ -78,14 +77,13 @@ func (w *Worker) processWebpage(job *redis.IndexJob) (*postgres.ProcessedJob, er
 		}
 		return false
 	}))
-	stemmedTextContent := w.stemWords(cleanedTextContent)
+	stemmedTextContent := stemWords(cleanedTextContent)
 	result.CleanTextContent = stemmedTextContent
 
 	return &result, nil
-
 }
 
-func (w *Worker) removeStopWords(content []string) []string {
+func removeStopWords(content []string) []string {
 	var filteredWords []string
 
 	for _, word := range content {
@@ -98,7 +96,7 @@ func (w *Worker) removeStopWords(content []string) []string {
 	return filteredWords
 }
 
-func (w *Worker) stemWords(content []string) []string {
+func stemWords(content []string) []string {
 	var stemmedWords []string
 	env := snowball.NewEnv("")
 	english.Stem(env)
@@ -110,39 +108,4 @@ func (w *Worker) stemWords(content []string) []string {
 	}
 
 	return stemmedWords
-}
-
-type Posting struct {
-	DocId     int64             `json:"doc_id"`    // Document ID
-	Tf        int32             `json:"tf"`        // Term frequency
-	Positions *roaring64.Bitmap `json:"positions"` // Positions of the term in the document
-}
-
-type InvertedIndex struct {
-	Word      string            `json:"word"`       // The term
-	DocBitmap *roaring64.Bitmap `json:"doc_bitmap"` // Bitmap of document IDs containing the term
-	DocFreq   int64             `json:"doc_freq"`   // Document frequency
-}
-
-func (w *Worker) createPostingsList(cleanedTextContent []string, docId int64) (*map[string]*Posting, error) {
-	postingsList := make(map[string]*Posting)
-
-	for pos, word := range cleanedTextContent {
-		word = strings.ToLower(word)
-		if _, exists := postingsList[word]; !exists {
-			postingsList[word] = &Posting{
-				DocId:     docId,
-				Tf:        1,
-				Positions: roaring64.New(),
-			}
-
-			postingsList[word].Positions.Add(uint64(pos))
-
-		} else {
-			postingsList[word].Tf++
-			postingsList[word].Positions.Add(uint64(pos))
-		}
-	}
-
-	return &postingsList, nil
 }
