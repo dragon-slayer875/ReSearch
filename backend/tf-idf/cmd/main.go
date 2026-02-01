@@ -20,7 +20,8 @@ func main() {
 
 	logger := log.New(os.Stdout, "tf-idf: ", log.LstdFlags)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	err := godotenv.Load(*envPath)
 	if err != nil {
@@ -40,22 +41,26 @@ func main() {
 	go func() {
 		<-sigChan
 		logger.Println("Received shutdown signal, exiting...")
-		os.Exit(0)
+		cancel()
 	}()
 
 	logger.Println("Starting...")
 
 	queries := database.New(dbPool)
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
 	for {
-		time.Sleep(10 * time.Minute)
-		logger.Println("Updating tf-idf")
+		select {
+		case <-ctx.Done():
+			return
 
-		err := queries.UpdateTfIdf(ctx)
-		if err != nil {
-			logger.Println(err)
-			continue
+		case <-ticker.C:
+			err := queries.UpdateTfIdf(ctx)
+			if err != nil {
+				logger.Fatalln("Error updating tf-idf", err)
+			}
+			logger.Println("tf-idf updates complete")
 		}
-
-		logger.Println("tf-idf update completed")
 	}
 }
