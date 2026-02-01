@@ -63,7 +63,11 @@ func (w *Worker) processWebpage(job *redis.IndexJob) (*postgres.ProcessedJob, er
 		}
 	}
 
-	result.RawTextContent = textContent[:100]
+	result.RawTextContent = textContent
+	if len(textContent) > 100 {
+		result.RawTextContent = textContent[:100]
+	}
+
 	cleanedTextContent := w.removeStopWords(strings.FieldsFunc(textContent, func(r rune) bool {
 		// Split on punctuation except apostrophes, or whitespace
 		if unicode.IsSpace(r) {
