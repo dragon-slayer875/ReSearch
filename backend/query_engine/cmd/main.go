@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"query_engine/internals/config"
@@ -14,33 +13,49 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"go.uber.org/zap"
 )
 
 func main() {
+	dev := flag.Bool("dev", false, "Enable development environment behavior")
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
 	envPath := flag.String("env", ".env", "Path to env variables file")
 	flag.Parse()
 
-	logger := log.New(os.Stdout, "queryEngine: ", log.LstdFlags)
+	logger := zap.Must(zap.NewProduction())
+	if *dev {
+		logger = zap.Must(zap.NewDevelopment())
+	}
 
 	ctx := context.Background()
 
-	err := godotenv.Load(*envPath)
-	if err != nil {
-		logger.Fatalln("Error loading environment variables:", err)
-	}
-
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		logger.Fatalln("Failed to load config:", err)
+		if os.IsNotExist(err) {
+			logger.Debug("Config file not found")
+		} else {
+			logger.Fatal("Failed to load config", zap.Error(err))
+		}
 	}
+	logger.Debug("Config loaded")
+
+	err = godotenv.Load(*envPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logger.Debug("env file not found")
+		} else {
+			logger.Fatal("Failed to load env file", zap.Error(err))
+		}
+	}
+	logger.Debug("env variables loaded")
 
 	dbPool, err := pgxpool.New(ctx, os.Getenv("POSTGRES_URL"))
 	if err != nil {
-		logger.Fatalf("Failed to connect to PostgreSQL: %v", err)
+		logger.Fatal("Failed to connect to PostgreSQL", zap.Error(err))
 	}
-
+	logger.Debug("PostgreSQL client initialized")
 	defer dbPool.Close()
+
 	app := fiber.New(fiber.Config{
 		UnescapePath: true,
 	})
@@ -52,17 +67,17 @@ func main() {
 
 	go func() {
 		<-sigChan
-		logger.Println("Received shutdown signal, exiting...")
+		logger.Info("Received shutdown signal, exiting...")
 		err = app.Shutdown()
 		if err != nil {
-			logger.Println(err)
+			logger.Error("", zap.Error(err))
 		}
 		os.Exit(0)
 	}()
 
-	logger.Println("Starting...")
+	logger.Info("Starting...")
 	err = QueryEngine.Start(fmt.Sprintf(":%s", cfg.QueryEngine.Port))
 	if err != nil {
-		logger.Fatalln(err)
+		logger.Fatal("Failed to start server", zap.Error(err))
 	}
 }

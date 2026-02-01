@@ -2,18 +2,18 @@ package queryEngine
 
 import (
 	"context"
-	"log"
 	"query_engine/internals/storage/database"
 	"query_engine/internals/utils"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.uber.org/zap"
 )
 
 type QueryEngine struct {
 	restServer *fiber.App
-	logger     *log.Logger
+	logger     *zap.Logger
 	dbPool     *pgxpool.Pool
 	ctx        context.Context
 }
@@ -24,7 +24,7 @@ type QueryEngineImpl interface {
 	retrieveDocuments(queryStrings []string) ([]database.GetSearchResultsRow, error)
 }
 
-func NewQueryEngine(restServer *fiber.App, logger *log.Logger, dbPool *pgxpool.Pool, ctx context.Context) *QueryEngine {
+func NewQueryEngine(restServer *fiber.App, logger *zap.Logger, dbPool *pgxpool.Pool, ctx context.Context) *QueryEngine {
 	return &QueryEngine{
 		restServer,
 		logger,
@@ -34,7 +34,7 @@ func NewQueryEngine(restServer *fiber.App, logger *log.Logger, dbPool *pgxpool.P
 }
 
 func (qe *QueryEngine) Start(port string) error {
-	qe.restServer.Get("/api/:search", func(c *fiber.Ctx) error {
+	qe.restServer.Get("/api/search/:search", func(c *fiber.Ctx) error {
 		return c.JSON(qe.processQuery(c.Params("search")))
 	})
 
@@ -49,7 +49,7 @@ func (qe *QueryEngine) processQuery(query string) []database.GetSearchResultsRow
 	documents, err := qe.retrieveDocuments(stemmed_query)
 
 	if err != nil {
-		qe.logger.Println(err)
+		qe.logger.Error("Error retriving query results", zap.String("query", query), zap.Error(err))
 		return nil
 	}
 
@@ -57,9 +57,7 @@ func (qe *QueryEngine) processQuery(query string) []database.GetSearchResultsRow
 		return nil
 	}
 
-	for _, result := range documents {
-		qe.logger.Println(result)
-	}
+	qe.logger.Info("Processed query", zap.Int("results", len(documents)))
 
 	return documents
 }
