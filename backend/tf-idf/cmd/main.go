@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,27 +12,43 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"go.uber.org/zap"
 )
 
 func main() {
+	dev := flag.Bool("dev", false, "Enable development environment behavior")
 	envPath := flag.String("env", ".env", "Path to env variables file")
 	flag.Parse()
 
-	logger := log.New(os.Stdout, "tf-idf: ", log.LstdFlags)
+	logger := zap.Must(zap.NewProduction())
+	if *dev {
+		logger = zap.Must(zap.NewDevelopment())
+	}
+
+	defer func() {
+		if deferErr := logger.Sync(); deferErr != nil && !errors.Is(deferErr, syscall.EINVAL) {
+			logger.Error("Failed to sync logger", zap.Error(deferErr))
+		}
+	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	err := godotenv.Load(*envPath)
 	if err != nil {
-		logger.Fatalln("Error loading environment variables:", err)
+		if os.IsNotExist(err) {
+			logger.Debug("env file not found")
+		} else {
+			logger.Fatal("Failed to load env file", zap.Error(err))
+		}
 	}
+	logger.Debug("env variables loaded")
 
 	dbPool, err := pgxpool.New(ctx, os.Getenv("POSTGRES_URL"))
 	if err != nil {
-		logger.Fatalf("Failed to connect to PostgreSQL: %v", err)
+		logger.Fatal("Failed to connect to PostgreSQL", zap.Error(err))
 	}
-
+	logger.Debug("PostgreSQL client initialized")
 	defer dbPool.Close()
 
 	sigChan := make(chan os.Signal, 1)
@@ -40,11 +56,11 @@ func main() {
 
 	go func() {
 		<-sigChan
-		logger.Println("Received shutdown signal, exiting...")
+		logger.Info("Received shutdown signal, exiting...")
 		cancel()
 	}()
 
-	logger.Println("Starting...")
+	logger.Info("Starting...")
 
 	queries := database.New(dbPool)
 	ticker := time.NewTicker(5 * time.Minute)
@@ -56,11 +72,12 @@ func main() {
 			return
 
 		case <-ticker.C:
+			logger.Info("Updating tf-idf")
 			err := queries.UpdateTfIdf(ctx)
 			if err != nil {
-				logger.Fatalln("Error updating tf-idf", err)
+				logger.Fatal("Error updating tf-idf", zap.Error(err))
 			}
-			logger.Println("tf-idf updates complete")
+			logger.Info("tf-idf updates complete")
 		}
 	}
 }
