@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"query_engine/internals/config"
+	"server/internals/config"
 
 	"go.uber.org/zap"
 )

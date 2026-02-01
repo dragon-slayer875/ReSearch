@@ -1,7 +1,7 @@
 package utils
 
 import (
-	english "query_engine/internals/snowball"
+	english "server/internals/snowball"
 	"strings"
 
 	snowball "github.com/snowballstem/snowball/go"

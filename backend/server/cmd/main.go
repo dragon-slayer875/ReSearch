@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"query_engine/internals/config"
-	queryEngine "query_engine/internals/query_engine"
-	"query_engine/internals/utils"
+	"server/internals/config"
+	"server/internals/server"
+	"server/internals/utils"
 	"syscall"
 
 	"github.com/gofiber/fiber/v2"
@@ -66,7 +66,7 @@ func main() {
 		UnescapePath: true,
 	})
 
-	QueryEngine := queryEngine.NewQueryEngine(app, logger, dbPool, ctx)
+	QueryEngine := server.NewServer(app, logger, dbPool, ctx)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
@@ -76,7 +76,7 @@ func main() {
 		logger.Info("Received shutdown signal, exiting...")
 		err = app.Shutdown()
 		if err != nil {
-			logger.Error("", zap.Error(err))
+			logger.Error("Failed to cleanly shutdown http server", zap.Error(err))
 		}
 		os.Exit(0)
 	}()
