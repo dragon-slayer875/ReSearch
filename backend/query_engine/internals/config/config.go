@@ -14,26 +14,26 @@ type QueryEngineConfig struct {
 }
 
 type LoggingConfig struct {
-	Level  string `mapstructure:"level"`
-	Format string `mapstructure:"format"`
+	Level       string   `mapstructure:"level"`
+	Encoding    string   `mapstructure:"encoding"`
+	OutputPaths []string `mapstructure:"output_paths"`
 }
 
 func Load(configPath string) (*Config, error) {
+	var configReadingErr error
+
 	viper.SetConfigFile(configPath)
-	viper.AutomaticEnv()
+	configReadingErr = viper.ReadInConfig()
 
 	viper.SetDefault("query_engine.port", "3001")
 	viper.SetDefault("logging.level", "info")
-	viper.SetDefault("logging.format", "json")
-
-	if err := viper.ReadInConfig(); err != nil {
-		return nil, err
-	}
+	viper.SetDefault("logging.encoding", "json")
+	viper.SetDefault("logging.output_paths", []string{"stderr"})
 
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
 		return nil, err
 	}
 
-	return &config, nil
+	return &config, configReadingErr
 }

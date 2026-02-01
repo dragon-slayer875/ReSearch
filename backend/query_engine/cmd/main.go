@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"query_engine/internals/config"
 	queryEngine "query_engine/internals/query_engine"
+	"query_engine/internals/utils"
 	"syscall"
 
 	"github.com/gofiber/fiber/v2"
@@ -38,6 +39,11 @@ func main() {
 		}
 	}
 	logger.Debug("Config loaded")
+
+	logger, err = utils.NewConfiguredLogger(dev, cfg)
+	if err != nil {
+		logger.Fatal("Failed to configure logger", zap.Error(err))
+	}
 
 	err = godotenv.Load(*envPath)
 	if err != nil {
