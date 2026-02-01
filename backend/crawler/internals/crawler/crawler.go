@@ -81,14 +81,14 @@ func (crawler *Crawler) Start() {
 		go func() {
 			defer wg.Done()
 
-			workerLogger := crawler.logger.Named(fmt.Sprintf("Worker %d", i))
+			workerLogger := crawler.logger.Named(fmt.Sprintf("worker %d", i))
 
 			retryer, err := retry.New(
 				crawler.retryer.MaxRetries,
 				crawler.retryer.InitialBackoff.String(),
 				crawler.retryer.MaxBackoff.String(),
 				crawler.retryer.BackoffMultiplier,
-				workerLogger.Named("Retryer"))
+				workerLogger.Named("retryer"))
 			if err != nil {
 				crawler.logger.Fatal("Failed to initialize retryer for worker", zap.Error(err))
 			}
@@ -164,7 +164,7 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 	for scanner.Scan() {
 		err := crawler.ctx.Err()
 		if err == context.Canceled {
-			crawler.logger.Info("Context canceled, stopping publishing of seed urls")
+			crawler.logger.Info("Stopping publishing of seed urls")
 			break
 		} else if err != nil {
 			crawler.logger.Fatal("Context error found, crawler shutting down", zap.Error(err))
@@ -173,7 +173,7 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 		url := scanner.Text()
 		normalizedURL, domain, ext, err := utils.NormalizeURL("", url)
 		if err != nil {
-			crawler.logger.Warn("Failed to normalize URL", zap.String("raw_url", url), zap.String("warning", err.Error()))
+			crawler.logger.Warn("Failed to normalize URL", zap.String("raw_url", url), zap.Error(err))
 			continue
 		}
 
@@ -227,6 +227,7 @@ func (worker *Worker) work() {
 		}
 
 		worker.logger = worker.logger.With(zap.String("domain", domain))
+
 		if err := worker.processDomain(domain); err != nil {
 			if strings.HasPrefix(err.Error(), "lock already taken") {
 				worker.logger.Info("Domain already acquired by another worker")
@@ -275,7 +276,7 @@ func (worker *Worker) processDomain(domain string) (err error) {
 			}
 
 			if err == context.Canceled {
-				worker.logger.Debug("Shutdown signal received, stopping further processing")
+				worker.logger.Info("Stopping further processing")
 				break
 			} else {
 				return err
@@ -388,7 +389,20 @@ func (worker *Worker) updateQueuesAndStorage(url string, htmlContent *[]byte, li
 		return fmt.Errorf("failed to update storage: %w", err)
 	}
 
-	if err := worker.updateQueues(htmlContent, url, id); err != nil {
+	payload := struct {
+		Id          int64  `json:"id"`
+		Url         string `json:"url"`
+		HtmlContent string `json:"html_content"`
+		Timestamp   int64  `json:"timestamp"`
+	}{
+		id, url, string(*htmlContent), time.Now().Unix(),
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	if err := worker.redisClient.UpdateQueues(worker.workerCtx, &payloadJSON, url); err != nil {
 		return fmt.Errorf("failed to update queues: %w", err)
 	}
 
@@ -421,37 +435,6 @@ func (worker *Worker) getNextUrlForDomain(domain string) (string, error) {
 	}
 
 	return url, nil
-}
-
-func (worker *Worker) updateQueues(htmlContent *[]byte, url string, id int64) error {
-	payload := struct {
-		Id          int64  `json:"id"`
-		Url         string `json:"url"`
-		HtmlContent string `json:"html_content"`
-		Timestamp   int64  `json:"timestamp"`
-	}{
-		id, url, string(*htmlContent), time.Now().Unix(),
-	}
-	payloadJSON, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal indexing payload: %w", err)
-	}
-
-	pipe := worker.redisClient.Pipeline()
-	pipe.Set(worker.workerCtx, url, payloadJSON, 0)
-	pipe.LPush(worker.workerCtx, redis.IndexPendingQueue, url)
-	pipe.ZRem(worker.workerCtx, redis.UrlsProcessingQueue, url)
-
-	err = worker.retryer.Do(worker.workerCtx, func() error {
-		_, err := pipe.Exec(worker.workerCtx)
-		return err
-	}, utils.IsRetryableRedisError)
-
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (worker *Worker) getRobotRules(domain string) (*RobotRules, error) {

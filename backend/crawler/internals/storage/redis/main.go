@@ -35,13 +35,6 @@ func New(ctx context.Context, redisUrl string, retryer *retry.Retryer) (*RedisCl
 			return err
 		}
 
-		// redisOpts.MaxRetries = 5
-		// redisOpts.MaxRetryBackoff = 10 * time.Second
-		// redisOpts.MinRetryBackoff = 1 * time.Second
-		// redisOpts.ReadTimeout = 5 * time.Second
-		// redisOpts.WriteTimeout = 5 * time.Second
-		// redisOpts.DialTimeout = 10 * time.Second
-
 		client = redis.NewClient(redisOpts)
 
 		if err := client.Ping(ctx).Err(); err != nil {
@@ -177,4 +170,16 @@ func (rc *RedisClient) HGet(ctx context.Context, key string, field string) *redi
 	}, utils.IsRetryableRedisError)
 
 	return redisCmd
+}
+
+func (rc *RedisClient) UpdateQueues(ctx context.Context, payloadJSON *[]byte, url string) error {
+	pipe := rc.Client.TxPipeline()
+	pipe.Set(ctx, url, *payloadJSON, 0)
+	pipe.LPush(ctx, IndexPendingQueue, url)
+	pipe.ZRem(ctx, UrlsProcessingQueue, url)
+
+	return rc.retryer.Do(ctx, func() error {
+		_, err := pipe.Exec(ctx)
+		return err
+	}, utils.IsRetryableRedisError)
 }

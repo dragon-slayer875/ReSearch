@@ -33,6 +33,7 @@ func (worker *Worker) crawlUrl(url, domain string) (links *[]string, htmlBytes [
 	if err != nil {
 		return nil, nil, err
 	}
+
 	defer func() {
 		if deferErr := resp.Body.Close(); deferErr != nil {
 			err = deferErr
@@ -125,7 +126,7 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 					if attr.Key == "href" {
 						normalizedURL, domain, ext, err := utils.NormalizeURL(baseURL, attr.Val)
 						if err != nil {
-							worker.logger.Warn("Failed to normalize URL", zap.String("raw_url", attr.Val), zap.String("warning", err.Error()))
+							worker.logger.Warn("Failed to normalize URL", zap.String("raw_url", attr.Val), zap.Error(err))
 							continue
 						}
 

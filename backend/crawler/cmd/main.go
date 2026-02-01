@@ -82,7 +82,7 @@ func main() {
 		cfg.Retryer.InitialBackoff,
 		cfg.Retryer.MaxBackoff,
 		cfg.Retryer.BackoffMultiplier,
-		logger.Named("Retryer"))
+		logger.Named("retryer"))
 	if err != nil {
 		logger.Fatal("Failed to initialize retryer", zap.Error(err))
 	}
@@ -104,7 +104,7 @@ func main() {
 
 	postgresClient, err := postgres.New(ctx, os.Getenv("POSTGRES_URL"), retryer)
 	if err != nil {
-		logger.Fatal("Failed to connect to PostgreSQL:", zap.Error(err))
+		logger.Fatal("Failed to connect to PostgreSQL", zap.Error(err))
 	}
 	logger.Debug("PostgreSQL client initialized")
 	defer postgresClient.Close()
@@ -141,5 +141,4 @@ func main() {
 
 	logger.Info("Starting...")
 	Crawler.Start()
-	logger.Info("Exiting...")
 }

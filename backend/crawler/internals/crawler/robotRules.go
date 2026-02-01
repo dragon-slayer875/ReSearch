@@ -97,7 +97,7 @@ func (worker *Worker) fetchRobotRulesFromWeb(domain string) (robotRules *RobotRu
 				}
 				crawlDelay, err := strconv.Atoi(crawlDelayStr)
 				if err != nil {
-					worker.logger.Warn("Failed to parse crawl delay in robots.txt", zap.String("warning", err.Error()))
+					worker.logger.Warn("Failed to parse crawl delay in robots.txt", zap.Error(err))
 					continue
 				}
 				robotRules.CrawlDelay = crawlDelay
@@ -155,7 +155,7 @@ func (worker *Worker) parseRobotRules(robotRulesJson []byte) *RobotRules {
 	}
 
 	if err := json.Unmarshal(robotRulesJson, &robotRules); err != nil {
-		worker.logger.Warn("Failed to parse robot rules", zap.String("warning", err.Error()))
+		worker.logger.Warn("Failed to parse robot rules", zap.Error(err))
 		return nil
 	}
 
