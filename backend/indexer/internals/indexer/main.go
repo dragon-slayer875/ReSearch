@@ -81,13 +81,6 @@ func (i *Indexer) Start() {
 			worker.work()
 		}()
 	}
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		i.tfIdfUpdater()
-	}()
-
 	// wg.Add(1)
 	// go func() {
 	// 	defer wg.Done()
@@ -180,27 +173,6 @@ func (w *Worker) work() {
 		w.logger.Info("Successfully processed job:", zap.Int64("id", job.JobId))
 
 		w.logger = loggerWithoutUrl
-	}
-}
-
-func (i *Indexer) tfIdfUpdater() {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-i.ctx.Done():
-			i.logger.Info("Tf-idf updater shutting down")
-			return
-
-		case <-ticker.C:
-			err := i.postgresClient.UpdateTfIdf(i.ctx)
-			if err != nil {
-				i.logger.Error("Error updating tf-idf", zap.Error(err))
-				continue
-			}
-			i.logger.Info("tf-idf updates complete")
-		}
 	}
 }
 
