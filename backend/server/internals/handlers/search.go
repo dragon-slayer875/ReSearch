@@ -5,11 +5,11 @@ import (
 	"server/internals/utils"
 	"strings"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 func GetQuery(queries *database.Queries) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 
 		query := c.Params("query")
 		params := c.Queries()
@@ -19,9 +19,7 @@ func GetQuery(queries *database.Queries) fiber.Handler {
 
 		query_results, err := queries.GetSearchResults(c.Context(), stemmedQuery)
 		if err != nil {
-			return c.Status(fiber.StatusRequestTimeout).JSON(fiber.Map{
-				"error": "Unable to get results",
-			})
+			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
 		return c.JSON(fiber.Map{
