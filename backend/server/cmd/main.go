@@ -13,6 +13,7 @@ import (
 
 	fiberZap "github.com/gofiber/contrib/v3/zap"
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/log"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
@@ -83,6 +84,12 @@ func main() {
 	app.Use(fiberZap.New(fiberZap.Config{
 		Logger: logger,
 	}))
+
+	fiberLogger := fiberZap.NewLogger(fiberZap.LoggerConfig{
+		SetLogger: logger.WithOptions(zap.AddCallerSkip(3)),
+	})
+
+	log.SetLogger(fiberLogger)
 
 	api := app.Group("/api/v1")
 	router.SetupRoutes(api, dbPool)
