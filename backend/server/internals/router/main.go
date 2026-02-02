@@ -2,16 +2,18 @@ package router
 
 import (
 	"server/internals/handlers"
-	"server/internals/storage/database"
+	"server/internals/services"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func SetupRoutes(app fiber.Router, dbPool *pgxpool.Pool) {
-	searchRouter(app.Group("/search"), dbPool)
+	linksService := services.NewLinksService(dbPool)
+
+	searchRouter(app.Group("/search"), linksService)
 }
 
-func searchRouter(app fiber.Router, dbPool *pgxpool.Pool) {
-	app.Get("/:query", handlers.GetQuery(database.New(dbPool)))
+func searchRouter(app fiber.Router, service *services.LinksService) {
+	app.Get("/:query", handlers.GetQuery(service))
 }
