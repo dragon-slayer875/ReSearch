@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"server/internals/config"
 	"server/internals/router"
+	"server/internals/storage/redis"
 	"server/internals/utils"
 	"syscall"
 
@@ -64,6 +65,18 @@ func main() {
 	logger.Debug("PostgreSQL client initialized")
 	defer dbPool.Close()
 
+	redisClient, err := redis.New(ctx, os.Getenv("REDIS_URL"))
+	if err != nil {
+		logger.Fatal("Failed to initialize redis client", zap.Error(err))
+	}
+	logger.Debug("Redis client initialized")
+
+	defer func() {
+		if deferErr := redisClient.Close(); deferErr != nil {
+			logger.Error("Failed to close redis client", zap.Error(deferErr))
+		}
+	}()
+
 	app := fiber.New(fiber.Config{
 		UnescapePath: true,
 	})
@@ -92,7 +105,7 @@ func main() {
 	log.SetLogger(fiberLogger)
 
 	api := app.Group("/api/v1")
-	router.SetupRoutes(api, dbPool)
+	router.SetupRoutes(api, dbPool, redisClient)
 
 	logger.Info("Starting...")
 

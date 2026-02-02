@@ -6,14 +6,22 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
-func SetupRoutes(app fiber.Router, dbPool *pgxpool.Pool) {
+func SetupRoutes(app fiber.Router, dbPool *pgxpool.Pool, redisClient *redis.Client) {
 	linksService := services.NewLinksService(dbPool)
+	crawlerBoardService := services.NewCrawlerBoardService(redisClient)
 
 	searchRouter(app.Group("/search"), linksService)
+	crawlerBoardRouter(app.Group("/crawlerboard"), crawlerBoardService)
 }
 
 func searchRouter(app fiber.Router, service *services.LinksService) {
 	app.Get("/:query", handlers.GetQuery(service))
+}
+
+func crawlerBoardRouter(app fiber.Router, service *services.CrawlerBoardService) {
+	app.Get("/submissions", handlers.GetSubmissions(service))
+	app.Post("/submissions", handlers.PostSubmissions(service))
 }

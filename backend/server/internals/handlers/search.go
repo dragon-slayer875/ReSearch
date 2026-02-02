@@ -4,6 +4,7 @@ import (
 	"server/internals/services"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/log"
 )
 
 func GetQuery(service *services.LinksService) fiber.Handler {
@@ -13,6 +14,7 @@ func GetQuery(service *services.LinksService) fiber.Handler {
 
 		query_results, err := service.GetLinks(c.Context(), query)
 		if err != nil {
+			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
