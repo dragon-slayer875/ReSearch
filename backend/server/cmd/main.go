@@ -89,7 +89,7 @@ func main() {
 
 	logger.Info("Starting...")
 
-	err = app.Listen(fmt.Sprintf(":%s", cfg.QueryEngine.Port))
+	err = app.Listen(fmt.Sprintf(":%s", cfg.Server.Port))
 	if err != nil {
 		logger.Fatal("Failed to start server", zap.Error(err))
 	}
