@@ -24,4 +24,5 @@ func searchRouter(app fiber.Router, service *services.LinksService) {
 func crawlerBoardRouter(app fiber.Router, service *services.CrawlerBoardService) {
 	app.Get("/submissions", handlers.GetSubmissions(service))
 	app.Post("/submissions", handlers.PostSubmissions(service))
+	app.Post("/submissions/votes", handlers.PostVotes(service))
 }
