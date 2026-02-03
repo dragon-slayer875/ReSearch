@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	CrawlerScoreBoard = "crawlerBoard:score"
-	CrawlerTimeBoard  = "crawlerBoard:time"
+	CrawlerScoreBoard  = "crawlerBoard:score"
+	CrawlerTimeBoard   = "crawlerBoard:time"
+	DomainPendingQueue = "crawl:domain_pending"
 )
 
 func New(ctx context.Context, url string) (*redis.Client, error) {

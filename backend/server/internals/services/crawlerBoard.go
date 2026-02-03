@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"net/url"
 	"server/internals/storage/redis"
 	"time"
 
@@ -83,5 +84,92 @@ func (cb *CrawlerBoardService) UpdateVotes(ctx context.Context, submissions []st
 	}
 
 	_, err = updatesPipe.Exec(ctx)
+	return nonExistentSubmissions, err
+}
+
+func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submissions []string) ([]string, error) {
+	nonExistentSubmissions := make([]string, 0)
+	existingSubmissions := make([]any, 0)
+
+	pipe := cb.redisClient.TxPipeline()
+	scoresCmd := pipe.ZMScore(ctx, redis.CrawlerScoreBoard, submissions...)
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return nonExistentSubmissions, err
+	}
+
+	scores, err := scoresCmd.Result()
+	if err != nil {
+		return nonExistentSubmissions, err
+	}
+
+	for idx, score := range scores {
+		if score == 0 {
+			nonExistentSubmissions = append(nonExistentSubmissions, submissions[idx])
+		} else {
+			existingSubmissions = append(existingSubmissions, submissions[idx])
+		}
+	}
+
+	acceptPipe := cb.redisClient.TxPipeline()
+	acceptPipe.ZRem(ctx, redis.CrawlerScoreBoard, existingSubmissions...)
+
+	domains := make([]redisLib.Z, 0)
+	domainsAndUrls := make(map[redisLib.Z][]any)
+
+	for _, submission := range existingSubmissions {
+		parsedUrl, err := url.Parse((submission).(string))
+		if err != nil {
+			return nonExistentSubmissions, err
+		}
+
+		domain := redisLib.Z{
+			Member: parsedUrl.Hostname(),
+			Score:  float64(time.Now().Unix()),
+		}
+		domains = append(domains, domain)
+		domainsAndUrls[domain] = append(domainsAndUrls[domain], submission)
+	}
+
+	acceptPipe.ZAddNX(ctx, redis.DomainPendingQueue, domains...)
+
+	for _, domain := range domains {
+		acceptPipe.LPush(ctx, "crawl_queue:"+domain.Member.(string), domainsAndUrls[domain]...)
+	}
+
+	_, err = acceptPipe.Exec(ctx)
+	return nonExistentSubmissions, err
+}
+
+func (cb *CrawlerBoardService) RejectSubmissions(ctx context.Context, submissions []string) ([]string, error) {
+	nonExistentSubmissions := make([]string, 0)
+	existingSubmissions := make([]any, 0)
+
+	pipe := cb.redisClient.TxPipeline()
+	scoresCmd := pipe.ZMScore(ctx, redis.CrawlerScoreBoard, submissions...)
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return nonExistentSubmissions, err
+	}
+
+	scores, err := scoresCmd.Result()
+	if err != nil {
+		return nonExistentSubmissions, err
+	}
+
+	for idx, score := range scores {
+		if score == 0 {
+			nonExistentSubmissions = append(nonExistentSubmissions, submissions[idx])
+		} else {
+			existingSubmissions = append(existingSubmissions, submissions[idx])
+		}
+	}
+
+	rejectPipe := cb.redisClient.TxPipeline()
+	rejectPipe.ZRem(ctx, redis.CrawlerScoreBoard, existingSubmissions...)
+
+	_, err = rejectPipe.Exec(ctx)
 	return nonExistentSubmissions, err
 }
