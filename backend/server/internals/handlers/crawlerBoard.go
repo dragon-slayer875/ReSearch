@@ -8,7 +8,12 @@ import (
 )
 
 type submissionRequest struct {
-	Submissions []string `json:"submissions"`
+	Submissions []string `json:"submissions" validate:"required,gt=0"`
+}
+
+type voteRequest struct {
+	Submissions []string `json:"submissions" validate:"required,gt=0"`
+	Vote        string   `json:"vote" validate:"required,oneof=up down"`
 }
 
 func GetSubmissions(service *services.CrawlerBoardService) fiber.Handler {
@@ -28,18 +33,18 @@ func PostSubmissions(service *services.CrawlerBoardService) fiber.Handler {
 		var body submissionRequest
 
 		if err := c.Bind().Body(&body); err != nil {
-			log.Error(err)
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 
-		c.SendString("Entries Added")
-		return service.AddSubmissions(c.Context(), body.Submissions)
-	}
-}
+		c.Status(fiber.StatusCreated)
+		failedSubmissions, err := service.AddSubmissions(c.Context(), body.Submissions)
+		if err != nil {
+			log.Error(err)
+			return fiber.NewError(fiber.StatusInternalServerError)
+		}
 
-type voteRequest struct {
-	Submissions []string `json:"submissions"`
-	Vote        string   `json:"vote"`
+		return c.JSON(failedSubmissions)
+	}
 }
 
 func Vote(service *services.CrawlerBoardService) fiber.Handler {
@@ -47,12 +52,7 @@ func Vote(service *services.CrawlerBoardService) fiber.Handler {
 		var body voteRequest
 
 		if err := c.Bind().Body(&body); err != nil {
-			log.Error(err)
 			return fiber.NewError(fiber.StatusBadRequest)
-		}
-
-		if body.Vote != "up" && body.Vote != "down" {
-			return fiber.NewError(fiber.StatusBadRequest, "Unknown vote type")
 		}
 
 		nonExistentSubmissions, err := service.UpdateVotes(c.Context(), body.Submissions, body.Vote)
@@ -70,7 +70,6 @@ func AcceptSubmissions(service *services.CrawlerBoardService) fiber.Handler {
 		var body submissionRequest
 
 		if err := c.Bind().Body(&body); err != nil {
-			log.Error(err)
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 

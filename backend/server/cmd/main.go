@@ -12,6 +12,7 @@ import (
 	"server/internals/utils"
 	"syscall"
 
+	"github.com/go-playground/validator/v10"
 	fiberZap "github.com/gofiber/contrib/v3/zap"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/log"
@@ -78,7 +79,8 @@ func main() {
 	}()
 
 	app := fiber.New(fiber.Config{
-		UnescapePath: true,
+		UnescapePath:    true,
+		StructValidator: utils.New(validator.New()),
 	})
 
 	sigChan := make(chan os.Signal, 1)
