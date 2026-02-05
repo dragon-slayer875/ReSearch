@@ -68,13 +68,16 @@ func NormalizeURL(parentUrl, newUrl string) (string, bool, error) {
 	}
 
 	ext := ""
+	allowed := true
 	if nUrl.Path != "" {
 		trimmedPath := strings.TrimSuffix(nUrl.Path, "/")
 		ext = filepath.Ext(nUrl.Path)
 		normalizedURL += trimmedPath
 	}
 
-	allowed := isUrlOfAllowedResourceType(ext)
+	if ext != "" {
+		allowed = isUrlOfAllowedResourceType(ext)
+	}
 
 	return normalizedURL, allowed, nil
 }
