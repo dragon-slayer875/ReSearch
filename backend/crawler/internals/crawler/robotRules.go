@@ -32,11 +32,14 @@ func defaultRobotRules() *RobotRules {
 }
 
 func (worker *Worker) fetchRobotRulesFromWeb(domain string) (robotRules *RobotRules, err error) {
-	domainPrefix := "http://" + domain
+	domainPrefix := "https://" + domain
 	var resp *http.Response
 	err = worker.retryer.Do(worker.workerCtx, func() error {
 		var tryErr error
 		resp, tryErr = worker.httpClient.Get(domainPrefix + "/robots.txt")
+		if tryErr == http.ErrSchemeMismatch {
+			domainPrefix = "http://" + domain
+		}
 
 		return tryErr
 	}, utils.IsRetryableNetworkError)
