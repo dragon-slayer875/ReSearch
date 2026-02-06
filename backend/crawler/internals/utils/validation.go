@@ -4,49 +4,54 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
-func NormalizeURL(parentUrl, newUrl string) (string, string, string, error) {
+func NormalizeURL(parentUrl, newUrl string) (string, string, bool, error) {
+	allowed := false
 	pUrl, err := url.Parse(parentUrl)
 	if parentUrl != "" && err != nil {
-		return "", "", "", fmt.Errorf("could not parse parent URL: [%w]", err)
+		return "", "", allowed, fmt.Errorf("could not parse parent URL: [%w]", err)
 	}
 
 	nUrl, err := url.Parse(newUrl)
 	if err != nil {
-		return "", "", "", fmt.Errorf("could not parse URL to normalize: [%w]", err)
+		return "", "", allowed, fmt.Errorf("could not parse URL to normalize: [%w]", err)
 	}
 
-	// If the URL is relative, resolve it against the parent URL
 	nUrl = pUrl.ResolveReference(nUrl)
 
 	if nUrl.Scheme != "https" && nUrl.Scheme != "http" && nUrl.Scheme != "" {
-		return "", "", "", fmt.Errorf("url has invalid 'Scheme'")
+		return "", "", allowed, fmt.Errorf("url has invalid 'Scheme'")
 	}
 
 	if nUrl.Host == "" {
-		return "", "", "", fmt.Errorf("url has no 'Host'")
+		return "", "", allowed, fmt.Errorf("url has no 'Host'")
 	}
 
-	var normalizedURL string
+	domain := nUrl.Hostname()
+
 	if nUrl.Scheme == "" {
-		normalizedURL = "http" + "://" + nUrl.Host
-	} else {
-		normalizedURL = nUrl.Scheme + "://" + nUrl.Host
+		nUrl.Scheme = "https"
 	}
 
 	ext := ""
+	allowed = true
+
 	if nUrl.Path != "" {
-		trimmedPath := strings.TrimSuffix(nUrl.Path, "/")
+		nUrl.Path = strings.TrimSuffix(nUrl.Path, "/")
 		ext = filepath.Ext(nUrl.Path)
-		normalizedURL += trimmedPath
 	}
 
-	return normalizedURL, nUrl.Hostname(), ext, nil
+	if ext != "" {
+		allowed = isUrlOfAllowedResourceType(ext)
+	}
+
+	return nUrl.Scheme + "://" + domain + nUrl.Path, domain, allowed, nil
 }
 
-func IsUrlOfAllowedResourceType(ext string) bool {
+func isUrlOfAllowedResourceType(ext string) bool {
 	commonWebAndImgExtensions := []string{
 		".html", ".htm", ".php", ".asp", ".aspx", ".jsp",
 		".txt",
@@ -55,11 +60,5 @@ func IsUrlOfAllowedResourceType(ext string) bool {
 	// 	".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp",
 	// ".bmp", ".tiff", ".ico",
 
-	for _, allowedExt := range commonWebAndImgExtensions {
-		if ext == allowedExt {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(commonWebAndImgExtensions, ext)
 }

@@ -2,7 +2,6 @@ package crawler
 
 import (
 	"bytes"
-	"crawler/internals/storage/redis"
 	"crawler/internals/utils"
 	"fmt"
 	"io"
@@ -20,7 +19,7 @@ var (
 	errNotValidResource = fmt.Errorf("not a valid web page")
 )
 
-func (worker *Worker) crawlUrl(url, domain string) (links *[]string, htmlBytes []byte, err error) {
+func (worker *Worker) crawlUrl(url string) (outlinks *[]string, htmlBytes []byte, domainQueueMembers *[]redisLib.Z, domainsAndUrls *map[string][]any, err error) {
 	allowedResourceType := false
 
 	var resp *http.Response
@@ -31,7 +30,7 @@ func (worker *Worker) crawlUrl(url, domain string) (links *[]string, htmlBytes [
 		return tryErr
 	}, utils.IsRetryableNetworkError)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	defer func() {
@@ -40,12 +39,8 @@ func (worker *Worker) crawlUrl(url, domain string) (links *[]string, htmlBytes [
 		}
 	}()
 
-	if err = worker.redisClient.HSet(worker.workerCtx, "crawl:domain_delays", domain, time.Now().Unix()).Err(); err != nil {
-		return nil, nil, fmt.Errorf("failed to update domain delay: %w", err)
-	}
-
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("HTTP error: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
+		return nil, nil, nil, nil, fmt.Errorf("HTTP error: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -67,26 +62,27 @@ func (worker *Worker) crawlUrl(url, domain string) (links *[]string, htmlBytes [
 	}
 
 	if !allowedResourceType {
-		return nil, nil, errNotValidResource
+		return nil, nil, nil, nil, errNotValidResource
 	}
 
 	htmlBytes, err = io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	links, err = worker.discoverAndQueueUrls(url, htmlBytes)
+	outlinks, domainQueueMembers, domainsAndUrls, err = worker.discoverAndQueueUrls(url, htmlBytes)
 	if err != nil && err != io.EOF {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	return links, htmlBytes, nil
+	return outlinks, htmlBytes, domainQueueMembers, domainsAndUrls, nil
 }
 
-func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[]string, error) {
+func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[]string, *[]redisLib.Z, *map[string][]any, error) {
 	uniqueUrls := make(map[string]struct{})
+	domainsAndUrls := make(map[string][]any)
+	domainQueueMembers := make([]redisLib.Z, 0)
 	outlinks := make([]string, 0)
-	pipe := worker.redisClient.Pipeline()
 	tokenizer := html.NewTokenizer(bytes.NewReader(htmlBytes))
 
 	for {
@@ -94,19 +90,10 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 		switch tokenType {
 		case html.ErrorToken:
 			if err := tokenizer.Err(); err != io.EOF {
-				return nil, err
+				return nil, nil, nil, err
 			}
 
-			err := worker.retryer.Do(worker.workerCtx, func() error {
-				_, err := pipe.Exec(worker.workerCtx)
-				return err
-			}, utils.IsRetryableRedisError)
-
-			if err != nil {
-				return nil, err
-			}
-
-			return &outlinks, tokenizer.Err()
+			return &outlinks, &domainQueueMembers, &domainsAndUrls, tokenizer.Err()
 		case html.StartTagToken, html.SelfClosingTagToken:
 			token := tokenizer.Token()
 
@@ -115,7 +102,7 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 					if attr.Key == "lang" {
 						lang := strings.ToLower(attr.Val)
 						if lang != "en" && !strings.HasPrefix(lang, "en-") {
-							return nil, errNotEnglishPage // Non-English page, skip processing
+							return nil, nil, nil, errNotEnglishPage // Non-English page, skip processing
 						}
 					}
 				}
@@ -124,17 +111,14 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 			if token.Data == "a" {
 				for _, attr := range token.Attr {
 					if attr.Key == "href" {
-						normalizedURL, domain, ext, err := utils.NormalizeURL(baseURL, attr.Val)
+						normalizedURL, domain, allowed, err := utils.NormalizeURL(baseURL, attr.Val)
 						if err != nil {
 							worker.logger.Warn("Failed to normalize URL", zap.String("raw_url", attr.Val), zap.Error(err))
 							continue
 						}
 
-						if ext != "" {
-							isAllowed := utils.IsUrlOfAllowedResourceType(normalizedURL)
-							if !isAllowed {
-								continue
-							}
+						if !allowed {
+							continue
 						}
 
 						if _, exists := uniqueUrls[normalizedURL]; exists || normalizedURL == baseURL {
@@ -144,13 +128,13 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 						uniqueUrls[normalizedURL] = struct{}{}
 						outlinks = append(outlinks, normalizedURL)
 
-						pipe.ZAddNX(worker.workerCtx, redis.DomainPendingQueue, redisLib.Z{
+						domainQueueMembers = append(domainQueueMembers, redisLib.Z{
 							Member: domain,
 							Score:  float64(time.Now().Unix()),
 						})
-						pipe.LPush(worker.workerCtx, "crawl_queue:"+domain, normalizedURL)
-						worker.logger.Debug("Piped URL", zap.String("normalized_url", normalizedURL))
+						domainsAndUrls[domain] = append(domainsAndUrls[domain], normalizedURL)
 
+						worker.logger.Debug("Found url", zap.String("normalized_url", normalizedURL))
 						break
 					}
 				}

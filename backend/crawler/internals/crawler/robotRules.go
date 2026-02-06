@@ -123,7 +123,7 @@ func (worker *Worker) fetchRobotRulesFromWeb(domain string) (robotRules *RobotRu
 }
 
 func (robotRules *RobotRules) isPolite(ctx context.Context, domainString string, redisClient *redis.RedisClient) (bool, error) {
-	lastCrawlTime, err := redisClient.HGet(ctx, "crawl:domain_delays", domainString).Int64()
+	lastCrawlTime, err := redisClient.HGet(ctx, redis.DomainDelayHashKey, domainString).Int64()
 	if err != nil {
 		return true, err
 	}

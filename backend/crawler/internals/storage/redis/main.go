@@ -10,10 +10,12 @@ import (
 )
 
 const (
-	DomainPendingQueue    = "crawl:domain_pending"
-	DomainProcessingQueue = "crawl:domain_processing"
-	UrlsProcessingQueue   = "crawl:urls_processing"
-	IndexPendingQueue     = "index:pending"
+	DomainPendingQueue  = "crawl:domain_pending"
+	UrlsProcessingQueue = "crawl:urls_processing"
+	IndexPendingQueue   = "index:pending"
+	FreshHashKey        = "crawl:fresh"
+	DomainDelayHashKey  = "crawl:domain_delays"
+	CrawlQueuePrefix    = "cq:"
 )
 
 type Job struct {
@@ -172,11 +174,42 @@ func (rc *RedisClient) HGet(ctx context.Context, key string, field string) *redi
 	return redisCmd
 }
 
-func (rc *RedisClient) UpdateQueues(ctx context.Context, payloadJSON *[]byte, url string) error {
+func (rc *RedisClient) HExists(ctx context.Context, key string, field string) *redis.BoolCmd {
+	var redisCmd *redis.BoolCmd
+
+	_ = rc.retryer.Do(ctx, func() error {
+		redisCmd = rc.Client.HExists(ctx, key, field)
+		return redisCmd.Err()
+	}, utils.IsRetryableRedisError)
+
+	return redisCmd
+}
+
+func (rc *RedisClient) UpdateRedis(ctx context.Context, payloadJSON *[]byte, url, domain string) error {
 	pipe := rc.Client.TxPipeline()
 	pipe.Set(ctx, url, *payloadJSON, 0)
 	pipe.LPush(ctx, IndexPendingQueue, url)
 	pipe.ZRem(ctx, UrlsProcessingQueue, url)
+	pipe.HSetEXWithArgs(ctx, FreshHashKey, &redis.HSetEXOptions{
+		ExpirationType: redis.HSetEXExpirationEX,
+		// TODO: make this configurable
+		ExpirationVal: int64((time.Hour * 24).Seconds()),
+	}, url, "1")
+	pipe.HSet(ctx, DomainDelayHashKey, domain, time.Now().Unix())
+
+	return rc.retryer.Do(ctx, func() error {
+		_, err := pipe.Exec(ctx)
+		return err
+	}, utils.IsRetryableRedisError)
+}
+
+func (rc *RedisClient) UpdateQueues(ctx context.Context, domain string, domainQueueMembers *[]redis.Z, domainsAndUrls *map[string][]any) error {
+	pipe := rc.Client.TxPipeline()
+	pipe.ZAddNX(ctx, DomainPendingQueue, *domainQueueMembers...)
+
+	for domain, urls := range *domainsAndUrls {
+		pipe.LPush(ctx, CrawlQueuePrefix+domain, urls...)
+	}
 
 	return rc.retryer.Do(ctx, func() error {
 		_, err := pipe.Exec(ctx)

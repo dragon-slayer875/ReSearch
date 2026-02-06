@@ -143,6 +143,8 @@ func (crawler *Crawler) Start() {
 }
 
 func (crawler *Crawler) PublishSeedUrls(seedPath string) {
+	domainAndUrls := make(map[string][]any)
+	domainQueueMembers := make([]redisLib.Z, 0)
 	pipe := crawler.redisClient.Pipeline()
 
 	file, err := os.Open(seedPath)
@@ -171,24 +173,29 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 		}
 
 		url := scanner.Text()
-		normalizedURL, domain, ext, err := utils.NormalizeURL("", url)
+		normalizedURL, domain, allowed, err := utils.NormalizeURL("", url)
 		if err != nil {
 			crawler.logger.Warn("Failed to normalize URL", zap.String("raw_url", url), zap.Error(err))
 			continue
 		}
 
-		if ext != "" {
-			isAllowed := utils.IsUrlOfAllowedResourceType(normalizedURL)
-			if !isAllowed {
-				continue
-			}
+		if !allowed {
+			continue
 		}
 
-		pipe.ZAddNX(crawler.ctx, redis.DomainPendingQueue, redisLib.Z{
+		domainQueueMembers = append(domainQueueMembers, redisLib.Z{
 			Member: domain,
 			Score:  float64(time.Now().Unix()),
 		})
-		pipe.LPush(crawler.ctx, "crawl_queue:"+domain, normalizedURL)
+
+		domainAndUrls[domain] = append(domainAndUrls[domain], normalizedURL)
+
+	}
+
+	domainQueueCmd := pipe.ZAddNX(crawler.ctx, redis.DomainPendingQueue, domainQueueMembers...)
+
+	for domain, urls := range domainAndUrls {
+		pipe.LPush(crawler.ctx, redis.CrawlQueuePrefix+domain, urls...)
 	}
 
 	err = crawler.retryer.Do(crawler.ctx, func() error {
@@ -198,6 +205,10 @@ func (crawler *Crawler) PublishSeedUrls(seedPath string) {
 
 	if err != nil {
 		crawler.logger.Fatal("Failed to seed URLs", zap.Error(err))
+	}
+
+	if domainQueueCmd.Err() != nil {
+		crawler.logger.Error("Failed to seed URLs", zap.Error(err))
 	}
 
 	crawler.logger.Info("Published seed URLs")
@@ -265,6 +276,7 @@ func (worker *Worker) processDomain(domain string) (err error) {
 
 	loggerWithoutUrl := worker.logger
 
+urlLoop:
 	for {
 		err = worker.crawlerCtx.Err()
 		if err != nil {
@@ -284,15 +296,33 @@ func (worker *Worker) processDomain(domain string) (err error) {
 		}
 
 		url, err := worker.getNextUrlForDomain(domain)
-		if err == redisLib.Nil {
-			worker.logger.Info("Domain's URL queue is empty")
-			break
-		}
 		if err != nil {
-			worker.logger.Fatal("Failed to get next URL", zap.Error(err))
+			switch err {
+			case redisLib.Nil:
+				worker.logger.Info("Domain's URL queue is empty")
+				break urlLoop
+			case errNotStale:
+				worker.logger.Debug("Freshly crawled, skipping", zap.String("url", url))
+				continue
+			default:
+				worker.logger.Fatal("Failed to get next URL", zap.Error(err), zap.String("url", url))
+			}
 		}
 
 		worker.logger = worker.logger.With(zap.String("url", url))
+
+		err = worker.processUrl(url, domain, robotRules)
+		if err != nil {
+			switch err {
+			case errNotEnglishPage, errNotValidResource:
+				worker.logger.Info(err.Error())
+				if discardErr := worker.discardJob(url); discardErr != nil {
+					worker.logger.Fatal("Failed to discard URL", zap.Error(discardErr))
+				}
+			default:
+				worker.logger.Fatal("Failed to process URL", zap.Error(err))
+			}
+		}
 
 		_, err = mutex.Extend()
 		if err != nil {
@@ -300,19 +330,6 @@ func (worker *Worker) processDomain(domain string) (err error) {
 		}
 
 		worker.logger.Debug("Mutex extended", zap.Time("expiry", mutex.Until()))
-
-		err = worker.processUrl(url, domain, robotRules)
-		if err != nil {
-			switch err {
-			case errNotStale, errNotEnglishPage, errNotValidResource:
-				worker.logger.Info(err.Error())
-				if err := worker.discardJob(url); err != nil {
-					worker.logger.Fatal("Failed to discard URL", zap.Error(err))
-				}
-			default:
-				worker.logger.Fatal("Failed to process URL", zap.Error(err))
-			}
-		}
 
 		worker.logger = loggerWithoutUrl
 	}
@@ -323,12 +340,11 @@ func (worker *Worker) processDomain(domain string) (err error) {
 func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) error {
 	worker.logger.Info("Processing URL")
 
-	stale, err := worker.isStale(url)
-	if err != nil {
+	if err := worker.redisClient.ZAdd(worker.workerCtx, redis.UrlsProcessingQueue, redisLib.Z{
+		Member: url,
+		Score:  float64(time.Now().Unix()),
+	}).Err(); err != nil {
 		return err
-	}
-	if !stale {
-		return errNotStale
 	}
 
 	worker.logger.Info("Checking politeness")
@@ -342,13 +358,27 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 	}
 
 	worker.logger.Info("Crawling")
-	links, htmlContent, err := worker.crawlUrl(url, domain)
+	outlinks, htmlContent, domainQueueMembers, domainAndUrls, err := worker.crawlUrl(url)
 	if err != nil {
+		switch err {
+		case errNotEnglishPage, errNotValidResource:
+			worker.logger.Info(err.Error())
+		default:
+			worker.logger.Warn(err.Error())
+		}
+		if discardErr := worker.discardJob(url); discardErr != nil {
+			worker.logger.Fatal("Failed to discard URL", zap.Error(discardErr))
+		}
+		return nil
+	}
+
+	worker.logger.Info("Updating queues")
+	if err := worker.redisClient.UpdateQueues(worker.workerCtx, domain, domainQueueMembers, domainAndUrls); err != nil {
 		return err
 	}
 
-	worker.logger.Info("Updating storage and queues")
-	if err := worker.updateQueuesAndStorage(url, &htmlContent, links); err != nil {
+	worker.logger.Info("Updating database and redis")
+	if err := worker.updateDatabaseAndRedis(url, domain, &htmlContent, outlinks); err != nil {
 		return err
 	}
 
@@ -383,8 +413,8 @@ func (worker *Worker) discardJob(url string) error {
 // 	return nil
 // }
 
-func (worker *Worker) updateQueuesAndStorage(url string, htmlContent *[]byte, links *[]string) error {
-	id, err := worker.postgresClient.UpdateStorage(worker.workerCtx, url, links)
+func (worker *Worker) updateDatabaseAndRedis(url, domain string, htmlContent *[]byte, links *[]string) error {
+	id, err := worker.postgresClient.UpdateDatabase(worker.workerCtx, url, links)
 	if err != nil {
 		return fmt.Errorf("failed to update storage: %w", err)
 	}
@@ -402,7 +432,7 @@ func (worker *Worker) updateQueuesAndStorage(url string, htmlContent *[]byte, li
 		return err
 	}
 
-	if err := worker.redisClient.UpdateQueues(worker.workerCtx, &payloadJSON, url); err != nil {
+	if err := worker.redisClient.UpdateRedis(worker.workerCtx, &payloadJSON, url, domain); err != nil {
 		return fmt.Errorf("failed to update queues: %w", err)
 	}
 
@@ -419,19 +449,19 @@ func (worker *Worker) getNextDomain() (string, error) {
 }
 
 func (worker *Worker) getNextUrlForDomain(domain string) (string, error) {
-	result, err := worker.redisClient.BRPop(worker.workerCtx, 15*time.Second, "crawl_queue:"+domain).Result()
+	result, err := worker.redisClient.BRPop(worker.workerCtx, 15*time.Second, redis.CrawlQueuePrefix+domain).Result()
 	if err != nil {
 		return "", err
 	}
 
 	url := result[1]
 
-	err = worker.redisClient.ZAdd(worker.workerCtx, redis.UrlsProcessingQueue, redisLib.Z{
-		Score:  float64(time.Now().Unix()),
-		Member: url,
-	}).Err()
+	fresh, err := worker.isFresh(url)
 	if err != nil {
-		return "", err
+		return url, err
+	}
+	if fresh {
+		return url, errNotStale
 	}
 
 	return url, nil
@@ -504,16 +534,14 @@ func (worker *Worker) storeRobotRules(domain string, robotRulesJson []byte) erro
 	return nil
 }
 
-func (worker *Worker) isStale(url string) (bool, error) {
-	stale := true
-
-	urlData, err := worker.postgresClient.GetUrl(worker.workerCtx, url)
-	if err != nil && err != pgx.ErrNoRows {
-		return stale, err
+func (worker *Worker) isFresh(url string) (bool, error) {
+	fresh, err := worker.redisClient.Client.HExists(worker.workerCtx, redis.FreshHashKey, url).Result()
+	if err != nil && err != redisLib.Nil {
+		return fresh, err
 	}
-	if err == nil && time.Since(urlData.FetchedAt.Time) < time.Hour*24 {
-		stale = false
+	if err == redisLib.Nil {
+		worker.logger.Warn("Staleness check gives nil too")
 	}
 
-	return stale, nil
+	return fresh, nil
 }

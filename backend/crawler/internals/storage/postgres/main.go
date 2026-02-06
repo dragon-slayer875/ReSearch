@@ -89,7 +89,7 @@ func (pc *Client) GetUrl(ctx context.Context, url string) (database.Url, error) 
 	return urlData, err
 }
 
-func (pc *Client) UpdateStorage(ctx context.Context, url string, links *[]string) (crawledUrlId int64, err error) {
+func (pc *Client) UpdateDatabase(ctx context.Context, url string, links *[]string) (crawledUrlId int64, err error) {
 	err = pc.retryer.Do(ctx, func() (lastErr error) {
 		tx, lastErr := pc.Pool.Begin(ctx)
 		if lastErr != nil {
