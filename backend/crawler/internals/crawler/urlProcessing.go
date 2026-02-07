@@ -15,22 +15,23 @@ import (
 )
 
 var (
-	errNotEnglishPage   = fmt.Errorf("not an English page")
-	errNotValidResource = fmt.Errorf("not a valid web page")
+	errNotEnglishPage   = fmt.Errorf("not and english page")
+	errNotValidResource = fmt.Errorf("not supported resource type")
+	errNotOkayHttpCode  = fmt.Errorf("http status code not in range of 200 - 300")
 )
 
-func (worker *Worker) crawlUrl(url string) (outlinks *[]string, htmlBytes []byte, domainQueueMembers *[]redisLib.Z, domainsAndUrls *map[string][]any, err error) {
+func (worker *Worker) crawlUrl(page *utils.WebPage) (err error) {
 	allowedResourceType := false
 
 	var resp *http.Response
 	err = worker.retryer.Do(worker.workerCtx, func() error {
 		var tryErr error
-		resp, tryErr = worker.httpClient.Get(url)
+		resp, tryErr = worker.httpClient.Get(page.Url)
 
 		return tryErr
 	}, utils.IsRetryableNetworkError)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return err
 	}
 
 	defer func() {
@@ -40,7 +41,8 @@ func (worker *Worker) crawlUrl(url string) (outlinks *[]string, htmlBytes []byte
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, nil, nil, fmt.Errorf("HTTP error: %d %s", resp.StatusCode, http.StatusText(resp.StatusCode))
+		page.HttpStatusCode = resp.StatusCode
+		return nil
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -62,23 +64,25 @@ func (worker *Worker) crawlUrl(url string) (outlinks *[]string, htmlBytes []byte
 	}
 
 	if !allowedResourceType {
-		return nil, nil, nil, nil, errNotValidResource
+		return errNotValidResource
 	}
 
-	htmlBytes, err = io.ReadAll(resp.Body)
+	htmlBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to read response body: %w", err)
+		return fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	outlinks, domainQueueMembers, domainsAndUrls, err = worker.discoverAndQueueUrls(url, htmlBytes)
+	page.Outlinks, page.DomainQueueMembers, page.DomainAndUrls, err = worker.discoverAndQueueUrls(page, htmlBytes)
 	if err != nil && err != io.EOF {
-		return nil, nil, nil, nil, err
+		return err
 	}
 
-	return outlinks, htmlBytes, domainQueueMembers, domainsAndUrls, nil
+	page.HtmlContent = &htmlBytes
+
+	return nil
 }
 
-func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[]string, *[]redisLib.Z, *map[string][]any, error) {
+func (worker *Worker) discoverAndQueueUrls(page *utils.WebPage, htmlBytes []byte) (*[]string, *[]redisLib.Z, *map[string][]any, error) {
 	uniqueUrls := make(map[string]struct{})
 	domainsAndUrls := make(map[string][]any)
 	domainQueueMembers := make([]redisLib.Z, 0)
@@ -111,9 +115,9 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 			if token.Data == "a" {
 				for _, attr := range token.Attr {
 					if attr.Key == "href" {
-						normalizedURL, domain, allowed, err := utils.NormalizeURL(baseURL, attr.Val)
+						normalizedURL, domain, allowed, err := utils.NormalizeURL(page.Url, attr.Val)
 						if err != nil {
-							worker.logger.Warn("Failed to normalize URL", zap.String("raw_url", attr.Val), zap.Error(err))
+							worker.logger.Debug("Failed to normalize URL", zap.String("raw_url", attr.Val), zap.Error(err))
 							continue
 						}
 
@@ -121,7 +125,7 @@ func (worker *Worker) discoverAndQueueUrls(baseURL string, htmlBytes []byte) (*[
 							continue
 						}
 
-						if _, exists := uniqueUrls[normalizedURL]; exists || normalizedURL == baseURL {
+						if _, exists := uniqueUrls[normalizedURL]; exists || normalizedURL == page.Url {
 							continue
 						}
 

@@ -203,11 +203,11 @@ func (rc *RedisClient) UpdateRedis(ctx context.Context, payloadJSON *[]byte, url
 	}, utils.IsRetryableRedisError)
 }
 
-func (rc *RedisClient) UpdateQueues(ctx context.Context, domain string, domainQueueMembers *[]redis.Z, domainsAndUrls *map[string][]any) error {
+func (rc *RedisClient) UpdateQueues(ctx context.Context, page *utils.WebPage) error {
 	pipe := rc.Client.TxPipeline()
-	pipe.ZAddNX(ctx, DomainPendingQueue, *domainQueueMembers...)
+	pipe.ZAddNX(ctx, DomainPendingQueue, *page.DomainQueueMembers...)
 
-	for domain, urls := range *domainsAndUrls {
+	for domain, urls := range *page.DomainAndUrls {
 		pipe.LPush(ctx, CrawlQueuePrefix+domain, urls...)
 	}
 

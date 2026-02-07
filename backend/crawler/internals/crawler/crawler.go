@@ -313,15 +313,7 @@ urlLoop:
 
 		err = worker.processUrl(url, domain, robotRules)
 		if err != nil {
-			switch err {
-			case errNotEnglishPage, errNotValidResource:
-				worker.logger.Info(err.Error())
-				if discardErr := worker.discardJob(url); discardErr != nil {
-					worker.logger.Fatal("Failed to discard URL", zap.Error(discardErr))
-				}
-			default:
-				worker.logger.Fatal("Failed to process URL", zap.Error(err))
-			}
+			worker.logger.Fatal("Failed to process URL", zap.Error(err))
 		}
 
 		_, err = mutex.Extend()
@@ -339,6 +331,10 @@ urlLoop:
 
 func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) error {
 	worker.logger.Info("Processing URL")
+
+	page := new(utils.WebPage)
+	page.Url = url
+	page.Domain = domain
 
 	if err := worker.redisClient.ZAdd(worker.workerCtx, redis.UrlsProcessingQueue, redisLib.Z{
 		Member: url,
@@ -358,27 +354,36 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 	}
 
 	worker.logger.Info("Crawling")
-	outlinks, htmlContent, domainQueueMembers, domainAndUrls, err := worker.crawlUrl(url)
+	err = worker.crawlUrl(page)
 	if err != nil {
 		switch err {
 		case errNotEnglishPage, errNotValidResource:
-			worker.logger.Info(err.Error())
+			worker.logger.Debug("Url leads to unsupported resource type or non english page")
+		case errNotOkayHttpCode:
+			worker.logger.Info("Url returns http status out of okay range. Add to queue to retry", zap.Int("status_code", page.HttpStatusCode))
 		default:
-			worker.logger.Warn(err.Error())
+			if utils.IsRetryableNetworkError(err) {
+				if !utils.IsInternetAvailable() {
+					return fmt.Errorf("no internet. %w", err)
+				}
+			}
+			worker.logger.Warn("Error crawling url. Add to queue to try again", zap.Error(err))
 		}
+
 		if discardErr := worker.discardJob(url); discardErr != nil {
 			worker.logger.Fatal("Failed to discard URL", zap.Error(discardErr))
 		}
+
 		return nil
 	}
 
 	worker.logger.Info("Updating queues")
-	if err := worker.redisClient.UpdateQueues(worker.workerCtx, domain, domainQueueMembers, domainAndUrls); err != nil {
+	if err := worker.redisClient.UpdateQueues(worker.workerCtx, page); err != nil {
 		return err
 	}
 
 	worker.logger.Info("Updating database and redis")
-	if err := worker.updateDatabaseAndRedis(url, domain, &htmlContent, outlinks); err != nil {
+	if err := worker.updateDatabaseAndRedis(page); err != nil {
 		return err
 	}
 
@@ -413,8 +418,8 @@ func (worker *Worker) discardJob(url string) error {
 // 	return nil
 // }
 
-func (worker *Worker) updateDatabaseAndRedis(url, domain string, htmlContent *[]byte, links *[]string) error {
-	id, err := worker.postgresClient.UpdateDatabase(worker.workerCtx, url, links)
+func (worker *Worker) updateDatabaseAndRedis(page *utils.WebPage) error {
+	id, err := worker.postgresClient.UpdateDatabase(worker.workerCtx, page.Url, page.Outlinks)
 	if err != nil {
 		return fmt.Errorf("failed to update storage: %w", err)
 	}
@@ -425,14 +430,14 @@ func (worker *Worker) updateDatabaseAndRedis(url, domain string, htmlContent *[]
 		HtmlContent string `json:"html_content"`
 		Timestamp   int64  `json:"timestamp"`
 	}{
-		id, url, string(*htmlContent), time.Now().Unix(),
+		id, page.Url, string(*page.HtmlContent), time.Now().Unix(),
 	}
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
 
-	if err := worker.redisClient.UpdateRedis(worker.workerCtx, &payloadJSON, url, domain); err != nil {
+	if err := worker.redisClient.UpdateRedis(worker.workerCtx, &payloadJSON, page.Url, page.Domain); err != nil {
 		return fmt.Errorf("failed to update queues: %w", err)
 	}
 
