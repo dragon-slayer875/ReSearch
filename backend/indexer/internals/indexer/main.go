@@ -73,7 +73,7 @@ func (i *Indexer) Start() {
 				i.retryerCfg.BackoffMultiplier,
 				workerLogger.Named("retryer"))
 			if err != nil {
-				i.logger.Fatal("Failed to initialize retryer for worker", zap.Error(err))
+				i.logger.Fatal("Failed to initialize retryer", zap.Error(err))
 			}
 
 			worker := NewWorker(workerLogger, redis.NewWithClient(i.redisClient.Client, retryer), postgres.NewWithPool(i.postgresClient, retryer), i.ctx, context.Background())
@@ -159,15 +159,10 @@ func (w *Worker) work() {
 			continue
 		}
 
-		postingsList, err := utils.CreatePostingsList(processedJob.CleanTextContent, job.JobId)
-		if err != nil {
-			w.logger.Error("Error creating postings list", zap.String("url", job.Url), zap.Error(err))
-			continue
-		}
+		postingsList := utils.CreatePostingsList(processedJob.CleanTextContent, job.JobId)
 
 		if err := w.updateQueuesAndStorage(postingsList, job.Url, job.JobId, processedJob); err != nil {
-			w.logger.Error("Error updating queues for job", zap.Error(err), zap.String("url", job.Url))
-			continue
+			w.logger.Fatal("Error updating queues for job", zap.Error(err), zap.String("url", job.Url))
 		}
 
 		w.logger.Info("Successfully processed job:", zap.Int64("id", job.JobId))

@@ -18,7 +18,7 @@ type InvertedIndex struct {
 	DocFreq   int64             `json:"doc_freq"`   // Document frequency
 }
 
-func CreatePostingsList(cleanedTextContent []string, docId int64) (*map[string]*Posting, error) {
+func CreatePostingsList(cleanedTextContent []string, docId int64) *map[string]*Posting {
 	postingsList := make(map[string]*Posting)
 
 	for pos, word := range cleanedTextContent {
@@ -38,5 +38,5 @@ func CreatePostingsList(cleanedTextContent []string, docId int64) (*map[string]*
 		}
 	}
 
-	return &postingsList, nil
+	return &postingsList
 }
