@@ -216,3 +216,14 @@ func (rc *RedisClient) UpdateQueues(ctx context.Context, page *utils.WebPage) er
 		return err
 	}, utils.IsRetryableRedisError)
 }
+
+func (rc *RedisClient) DiscardJob(ctx context.Context, page *utils.WebPage) error {
+	pipe := rc.Pipeline()
+	pipe.ZRem(ctx, UrlsProcessingQueue, page.Url)
+	pipe.HSet(ctx, DomainDelayHashKey, page.Domain, time.Now().Unix())
+
+	return rc.retryer.Do(ctx, func() error {
+		_, err := pipe.Exec(ctx)
+		return err
+	}, utils.IsRetryableRedisError)
+}

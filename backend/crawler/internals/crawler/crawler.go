@@ -370,7 +370,8 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 			worker.logger.Warn("Error crawling url. Add to queue to try again", zap.Error(err))
 		}
 
-		if discardErr := worker.discardJob(url); discardErr != nil {
+		worker.logger.Info("Discarding")
+		if discardErr := worker.redisClient.DiscardJob(worker.workerCtx, page); discardErr != nil {
 			worker.logger.Fatal("Failed to discard URL", zap.Error(discardErr))
 		}
 
@@ -389,11 +390,6 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 
 	worker.logger.Info("Processed URL")
 	return nil
-}
-
-func (worker *Worker) discardJob(url string) error {
-	worker.logger.Info("Discarding URL")
-	return worker.redisClient.ZRem(worker.workerCtx, redis.UrlsProcessingQueue, url).Err()
 }
 
 // func (worker *Worker) requeueJobs(jobs ...redis.Z) error {
