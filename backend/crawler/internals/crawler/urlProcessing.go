@@ -42,7 +42,7 @@ func (worker *Worker) crawlUrl(page *utils.WebPage) (err error) {
 
 	if resp.StatusCode != http.StatusOK {
 		page.HttpStatusCode = resp.StatusCode
-		return nil
+		return errNotOkayHttpCode
 	}
 
 	contentType := resp.Header.Get("Content-Type")
