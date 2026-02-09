@@ -93,3 +93,11 @@ func isUrlOfAllowedResourceType(ext string) bool {
 
 	return slices.Contains(commonWebAndImgExtensions, ext)
 }
+
+func ToAnySlice[Type any](slice []Type) []any {
+	result := make([]any, len(slice))
+	for idx, val := range slice {
+		result[idx] = val
+	}
+	return result
+}

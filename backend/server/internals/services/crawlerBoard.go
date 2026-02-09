@@ -2,12 +2,9 @@ package services
 
 import (
 	"context"
-	"crypto/sha256"
-	"fmt"
 	"net/url"
 	"server/internals/storage/redis"
 	"server/internals/utils"
-	"strconv"
 	"time"
 
 	redisLib "github.com/redis/go-redis/v9"
@@ -23,40 +20,22 @@ func NewCrawlerBoardService(client *redisLib.Client) *CrawlerBoardService {
 	}
 }
 
-func (cb *CrawlerBoardService) GetSubmissions(ctx context.Context, sort, order string, page, limit int) (redisLib.FTSearchResult, error) {
-	asc := false
-	dsc := true
+func (cb *CrawlerBoardService) GetSubmissions(ctx context.Context, order string, page, limit int) (*[]string, error) {
+	var results []string
+	var err error
 
 	if order == "asc" {
-		asc = true
-		dsc = false
+		results, err = cb.redisClient.ZRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page)).Result()
+	} else {
+		results, err = cb.redisClient.ZRevRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page)).Result()
 	}
 
-	return cb.redisClient.FTSearchWithArgs(ctx, redis.CrawlerBoardIdx, "*", &redisLib.FTSearchOptions{
-		Limit:       limit,
-		LimitOffset: limit * (page - 1),
-		SortBy: []redisLib.FTSearchSortBy{
-			{
-				FieldName: sort,
-				Asc:       asc,
-				Desc:      dsc,
-			},
-		},
-		Return: []redisLib.FTSearchReturn{
-			{
-				FieldName: "__key",
-				As:        "id",
-			}, {
-				FieldName: "url",
-			}, {
-				FieldName: "score",
-			}, {
-				FieldName: "time",
-			}}}).Result()
+	return &results, err
 }
 
-func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions []string) ([]string, error) {
-	successfulSubmissions := make([]string, 0, len(submissions))
+func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions []string) ([]any, error) {
+	sortedSetMembers := make([]redisLib.Z, 0, len(submissions))
+	successfulSubmissions := make([]any, 0, len(submissions))
 
 	pipe := cb.redisClient.TxPipeline()
 
@@ -66,70 +45,27 @@ func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions [
 			continue
 		}
 
-		urlHash := sha256.Sum256([]byte(normalizedUrl))
-		urlHashStr := fmt.Sprintf("%x", urlHash)
-
-		pipe.HSetEXWithArgs(ctx, redis.CrawlerBoardPrefix+urlHashStr, &redisLib.HSetEXOptions{
-			Condition: redisLib.HSetEXCondition(redisLib.HSetEXFNX),
-		}, "url", normalizedUrl,
-			"score", strconv.Itoa(1),
-			"time", strconv.FormatInt(time.Now().Unix(), 10))
-		successfulSubmissions = append(successfulSubmissions, submission)
+		sortedSetMembers = append(sortedSetMembers, redisLib.Z{
+			Member: normalizedUrl,
+			Score:  float64(time.Now().Unix()),
+		})
+		successfulSubmissions = append(successfulSubmissions, normalizedUrl)
 	}
 
+	pipe.ZAddNX(ctx, redis.CrawlerboardKey, sortedSetMembers...)
 	_, err := pipe.Exec(ctx)
 
 	return successfulSubmissions, err
 }
 
-func (cb *CrawlerBoardService) UpdateVotes(ctx context.Context, submissions []string, voteIntent string) (int, error) {
-	// TODO: think of further ways to remove the need of looping twice
-	var successfulSubs int
-	existenceCmds := make(map[string]*redisLib.StringCmd, len(submissions))
-
-	existencePipe := cb.redisClient.TxPipeline()
-	for _, submission := range submissions {
-		existenceCmds[submission] = existencePipe.HGet(ctx, submission, "url")
-	}
-
-	_, err := existencePipe.Exec(ctx)
-	if err != nil && err != redisLib.Nil {
-		return successfulSubs, err
-	}
-
-	vote := 1
-	if voteIntent == "down" {
-		vote = -1
-	}
-
-	pipe := cb.redisClient.TxPipeline()
-
-	for submission, existenceCmd := range existenceCmds {
-		val, err := existenceCmd.Result()
-		if err != nil && err != redisLib.Nil {
-			return successfulSubs, err
-		}
-
-		if val == "" {
-			continue
-		}
-
-		pipe.HIncrBy(ctx, submission, "score", int64(vote))
-		successfulSubs++
-	}
-
-	_, err = pipe.Exec(ctx)
-	return successfulSubs, err
-}
-
 func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submissions []string) (int, error) {
 	var successfulSubs int
-	redisCmds := make([]*redisLib.StringSliceCmd, 0, len(submissions))
+	redisCmds := make([]*redisLib.IntCmd, 0, len(submissions))
 
 	pipe := cb.redisClient.TxPipeline()
 
 	for _, submission := range submissions {
-		redisCmds = append(redisCmds, pipe.HGetDel(ctx, submission, "url", "score", "time"))
+		redisCmds = append(redisCmds, pipe.ZRem(ctx, redis.CrawlerboardKey, submission))
 	}
 
 	_, err := pipe.Exec(ctx)
@@ -137,35 +73,36 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 		return successfulSubs, err
 	}
 
-	domains := make([]redisLib.Z, 0)
-	domainsAndUrls := make(map[redisLib.Z][]any)
+	domainQueueMembers := make([]redisLib.Z, 0, len(submissions))
+	domainsAndUrls := make(map[redisLib.Z][]any, len(submissions))
 
-	for _, cmd := range redisCmds {
-		vals, err := cmd.Result()
+	for idx, cmd := range redisCmds {
+		val, err := cmd.Result()
 		if err != nil {
 			return successfulSubs, err
 		}
 
-		if vals[0] == "nil" {
+		if val == 0 {
 			continue
 		}
 
-		parsedUrl, _ := url.Parse(vals[0])
+		parsedUrl, _ := url.Parse(submissions[idx])
 
-		domain := redisLib.Z{
+		qMember := redisLib.Z{
 			Member: parsedUrl.Hostname(),
 			Score:  float64(time.Now().Unix()),
 		}
-		domains = append(domains, domain)
-		domainsAndUrls[domain] = append(domainsAndUrls[domain], vals[0])
+		domainQueueMembers = append(domainQueueMembers, qMember)
+		domainsAndUrls[qMember] = append(domainsAndUrls[qMember], submissions[idx])
+		successfulSubs++
 	}
 
 	acceptPipe := cb.redisClient.TxPipeline()
 
-	acceptPipe.ZAddNX(ctx, redis.DomainPendingQueue, domains...)
+	acceptPipe.ZAddNX(ctx, redis.DomainPendingQueue, domainQueueMembers...)
 
-	for _, domain := range domains {
-		acceptPipe.LPush(ctx, "crawl_queue:"+domain.Member.(string), domainsAndUrls[domain]...)
+	for _, qMember := range domainQueueMembers {
+		acceptPipe.LPush(ctx, "crawl_queue:"+qMember.Member.(string), domainsAndUrls[qMember]...)
 	}
 
 	_, err = acceptPipe.Exec(ctx)
@@ -173,15 +110,5 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 }
 
 func (cb *CrawlerBoardService) RejectSubmissions(ctx context.Context, submissions []string) (int64, error) {
-	pipe := cb.redisClient.TxPipeline()
-	scoresCmd := pipe.Del(ctx, submissions...)
-
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		return 0, err
-	}
-
-	result, err := scoresCmd.Result()
-
-	return result, err
+	return cb.redisClient.ZRem(ctx, redis.CrawlerboardKey, utils.ToAnySlice(submissions)...).Result()
 }

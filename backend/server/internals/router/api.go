@@ -17,15 +17,19 @@ func SetupRoutes(app fiber.Router, dbPool *pgxpool.Pool, redisClient *redis.Clie
 	linksService := services.NewLinksService(dbPool)
 	crawlerBoardService := services.NewCrawlerBoardService(redisClient)
 
-	searchRouter(app.Group("/search"), linksService)
-	crawlerBoardRouter(app.Group("/crawlerboard"), crawlerBoardService)
+	setupApiRoutes(app.Group("/api/v1"), linksService, crawlerBoardService)
 }
 
-func searchRouter(app fiber.Router, service *services.LinksService) {
+func setupApiRoutes(app fiber.Router, linksService *services.LinksService, crawlerBoardService *services.CrawlerBoardService) {
+	apiSearchRouter(app.Group("/search"), linksService)
+	apiCrawlerBoardRouter(app.Group("/crawlerboard"), crawlerBoardService)
+}
+
+func apiSearchRouter(app fiber.Router, service *services.LinksService) {
 	app.Get("/:query", handlers.GetQuery(service))
 }
 
-func crawlerBoardRouter(app fiber.Router, service *services.CrawlerBoardService) {
+func apiCrawlerBoardRouter(app fiber.Router, service *services.CrawlerBoardService) {
 	authMiddleware := keyauth.New(keyauth.Config{
 		Validator: func(c fiber.Ctx, key string) (bool, error) {
 			hashedAPIKey := sha256.Sum256([]byte(os.Getenv("ADMIN_KEY")))
@@ -40,7 +44,6 @@ func crawlerBoardRouter(app fiber.Router, service *services.CrawlerBoardService)
 
 	app.Get("/submissions", handlers.GetSubmissions(service))
 	app.Post("/submissions", handlers.PostSubmissions(service))
-	app.Post("/submissions/votes", handlers.Vote(service))
 	app.Post("/submissions/accept", authMiddleware, handlers.AcceptSubmissions(service))
 	app.Post("/submissions/reject", authMiddleware, handlers.RejectSubmissions(service))
 }

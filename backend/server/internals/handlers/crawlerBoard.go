@@ -12,15 +12,9 @@ type submissionPostRequest struct {
 }
 
 type submissionGetRequest struct {
-	Sort  string `query:"sort,default:score" validate:"oneof=score time"`
 	Order string `query:"order,default:dsc" validate:"oneof=asc dsc"`
 	Page  int    `query:"page,default:1" validate:"gt=0"`
-	Limit int    `query:"page,default:10" validate:"gt=0"`
-}
-
-type voteRequest struct {
-	Submissions []string `json:"submissions" validate:"required,gt=0"`
-	Vote        string   `json:"vote" validate:"required,oneof=up down"`
+	Limit int    `query:"limit,default:10" validate:"gt=0"`
 }
 
 func GetSubmissions(service *services.CrawlerBoardService) fiber.Handler {
@@ -31,7 +25,7 @@ func GetSubmissions(service *services.CrawlerBoardService) fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 
-		submissions, err := service.GetSubmissions(c.Context(), req.Sort, req.Order, req.Page, req.Limit)
+		submissions, err := service.GetSubmissions(c.Context(), req.Order, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
@@ -57,24 +51,6 @@ func PostSubmissions(service *services.CrawlerBoardService) fiber.Handler {
 
 		c.Status(fiber.StatusCreated)
 		return c.JSON(failedSubmissions)
-	}
-}
-
-func Vote(service *services.CrawlerBoardService) fiber.Handler {
-	return func(c fiber.Ctx) error {
-		var body voteRequest
-
-		if err := c.Bind().Body(&body); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest)
-		}
-
-		successfulSubs, err := service.UpdateVotes(c.Context(), body.Submissions, body.Vote)
-		if err != nil {
-			log.Error(err)
-			return fiber.NewError(fiber.StatusInternalServerError)
-		}
-
-		return c.JSON(successfulSubs)
 	}
 }
 

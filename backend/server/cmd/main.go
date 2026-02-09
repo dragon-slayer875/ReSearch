@@ -16,6 +16,7 @@ import (
 	fiberZap "github.com/gofiber/contrib/v3/zap"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/log"
+	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
@@ -96,6 +97,7 @@ func main() {
 		os.Exit(0)
 	}()
 
+	app.Use(cors.New())
 	app.Use(fiberZap.New(fiberZap.Config{
 		Logger: logger,
 	}))
@@ -106,8 +108,7 @@ func main() {
 
 	log.SetLogger(fiberLogger)
 
-	api := app.Group("/api/v1")
-	router.SetupRoutes(api, dbPool, redisClient)
+	router.SetupRoutes(app, dbPool, redisClient)
 
 	logger.Info("Starting...")
 
