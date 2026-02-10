@@ -378,11 +378,6 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 		return nil
 	}
 
-	worker.logger.Info("Updating queues")
-	if err := worker.redisClient.UpdateQueues(worker.workerCtx, page); err != nil {
-		return err
-	}
-
 	worker.logger.Info("Updating database and redis")
 	if err := worker.updateDatabaseAndRedis(page); err != nil {
 		return err
@@ -433,7 +428,7 @@ func (worker *Worker) updateDatabaseAndRedis(page *utils.WebPage) error {
 		return err
 	}
 
-	if err := worker.redisClient.UpdateRedis(worker.workerCtx, &payloadJSON, page.Url, page.Domain); err != nil {
+	if err := worker.redisClient.UpdateRedis(worker.workerCtx, &payloadJSON, page); err != nil {
 		return fmt.Errorf("failed to update queues: %w", err)
 	}
 
