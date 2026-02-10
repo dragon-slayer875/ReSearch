@@ -188,6 +188,14 @@ func (rc *RedisClient) HExists(ctx context.Context, key string, field string) *r
 func (rc *RedisClient) UpdateRedis(ctx context.Context, payloadJSON *[]byte, page *utils.WebPage) error {
 	pipe := rc.Client.TxPipeline()
 
+	// Update domain crawl delay and set page as fresh
+	pipe.HSet(ctx, DomainDelayHashKey, page.Domain, time.Now().Unix())
+	pipe.HSetEXWithArgs(ctx, FreshHashKey, &redis.HSetEXOptions{
+		ExpirationType: redis.HSetEXExpirationEX,
+		// TODO: make this configurable
+		ExpirationVal: int64((time.Hour * 24).Seconds()),
+	}, page.Url, "1")
+
 	// Update crawling queue with new urls
 	pipe.ZAddNX(ctx, DomainPendingQueue, *page.DomainQueueMembers...)
 	for domain, urls := range *page.DomainAndUrls {
@@ -197,13 +205,6 @@ func (rc *RedisClient) UpdateRedis(ctx context.Context, payloadJSON *[]byte, pag
 	// Store contents and queue for indexing
 	pipe.Set(ctx, page.Url, *payloadJSON, 0)
 	pipe.LPush(ctx, IndexPendingQueue, page.Url)
-	pipe.ZRem(ctx, UrlsProcessingQueue, page.Url)
-	pipe.HSetEXWithArgs(ctx, FreshHashKey, &redis.HSetEXOptions{
-		ExpirationType: redis.HSetEXExpirationEX,
-		// TODO: make this configurable
-		ExpirationVal: int64((time.Hour * 24).Seconds()),
-	}, page.Url, "1")
-	pipe.HSet(ctx, DomainDelayHashKey, page.Domain, time.Now().Unix())
 
 	return rc.retryer.Do(ctx, func() error {
 		_, err := pipe.Exec(ctx)

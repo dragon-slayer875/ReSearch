@@ -336,13 +336,6 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 	page.Url = url
 	page.Domain = domain
 
-	if err := worker.redisClient.ZAdd(worker.workerCtx, redis.UrlsProcessingQueue, redisLib.Z{
-		Member: url,
-		Score:  float64(time.Now().Unix()),
-	}).Err(); err != nil {
-		return err
-	}
-
 	worker.logger.Info("Checking politeness")
 	polite, err := robotRules.isPolite(worker.workerCtx, domain, worker.redisClient)
 	if err != nil && err != redisLib.Nil {
@@ -371,7 +364,7 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 		}
 
 		worker.logger.Info("Discarding")
-		if discardErr := worker.redisClient.DiscardJob(worker.workerCtx, page); discardErr != nil {
+		if discardErr := worker.redisClient.HSet(worker.workerCtx, redis.DomainDelayHashKey, page.Domain, time.Now().Unix()).Err(); discardErr != nil {
 			worker.logger.Fatal("Failed to discard URL", zap.Error(discardErr))
 		}
 
