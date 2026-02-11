@@ -10,19 +10,18 @@ import (
 )
 
 const (
-	DomainPendingQueue    = "crawl:domain_pending"
-	UrlsProcessingQueue   = "crawl:urls_processing"
-	IndexPendingQueue     = "index:pending"
-	FreshHashKey          = "crawl:fresh"
-	DomainDelayHashKey    = "crawl:domain_delays"
-	linksHashKey          = "links"
-	backlinksSetKeyPrefix = "bl:"
-	CrawlQueuePrefix      = "cq:"
+	DomainPendingQueue = "crawl:domain_pending"
+	IndexPendingQueue  = "index:pending"
+	FreshHashKey       = "crawl:fresh"
+	DomainDelayHashKey = "crawl:domain_delays"
+	CrawlQueuePrefix   = "cq:"
 )
 
-type Job struct {
-	Url string `json:"url"`
-	Id  int64  `json:"id"`
+type hashedPage struct {
+	Url         string   `redis:"url"`
+	HtmlContent string   `redis:"html_content"`
+	Timestamp   int64    `redis:"timestamp"`
+	Outlinks    []string `redis:"outlinks"`
 }
 
 type RedisClient struct {
@@ -187,7 +186,7 @@ func (rc *RedisClient) HExists(ctx context.Context, key string, field string) *r
 	return redisCmd
 }
 
-func (rc *RedisClient) UpdateRedis(ctx context.Context, payloadJSON *[]byte, page *utils.WebPage) error {
+func (rc *RedisClient) UpdateRedis(ctx context.Context, page *utils.CrawledPage) error {
 	pipe := rc.Client.TxPipeline()
 
 	// Update domain crawl delay and set page as fresh
@@ -204,11 +203,13 @@ func (rc *RedisClient) UpdateRedis(ctx context.Context, payloadJSON *[]byte, pag
 		pipe.LPush(ctx, CrawlQueuePrefix+domain, urls...)
 	}
 
-	// Set links for backlinks and outlinks processing
-	pipe.HSet(ctx, linksHashKey, page.Url, *page.Outlinks)
-
 	// Store contents and queue for indexing
-	pipe.Set(ctx, page.Url, *payloadJSON, 0)
+	pipe.HSet(ctx, page.Url, hashedPage{
+		page.Url,
+		string(*page.HtmlContent),
+		page.CrawledAt,
+		*page.Outlinks,
+	})
 	pipe.LPush(ctx, IndexPendingQueue, page.Url)
 
 	return rc.retryer.Do(ctx, func() error {

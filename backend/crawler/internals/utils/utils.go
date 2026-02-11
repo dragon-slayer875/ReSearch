@@ -7,7 +7,7 @@ import (
 	redisLib "github.com/redis/go-redis/v9"
 )
 
-type WebPage struct {
+type CrawledPage struct {
 	Url                string
 	Domain             string
 	Outlinks           *[]string
@@ -15,6 +15,7 @@ type WebPage struct {
 	DomainAndUrls      *map[string][]any
 	HtmlContent        *[]byte
 	HttpStatusCode     int
+	CrawledAt          int64
 }
 
 func IsInternetAvailable() bool {

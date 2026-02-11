@@ -332,7 +332,7 @@ urlLoop:
 func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) error {
 	worker.logger.Info("Processing URL")
 
-	page := new(utils.WebPage)
+	page := new(utils.CrawledPage)
 	page.Url = url
 	page.Domain = domain
 
@@ -371,54 +371,12 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 		return nil
 	}
 
-	worker.logger.Info("Updating database and redis")
-	if err := worker.updateDatabaseAndRedis(page); err != nil {
+	worker.logger.Info("Saving crawled content and updating queues")
+	if err := worker.redisClient.UpdateRedis(worker.workerCtx, page); err != nil {
 		return err
 	}
 
 	worker.logger.Info("Processed URL")
-	return nil
-}
-
-// func (worker *Worker) requeueJobs(jobs ...redis.Z) error {
-// 	if len(jobs) == 0 {
-// 		return nil
-// 	}
-//
-// 	worker.logger.Debugln("requeuing jobs", jobs)
-//
-// 	pipe := worker.redisClient.Pipeline()
-// 	pipe.ZAdd(worker.ctx, queue.DomainPendingQueue, jobs...)
-//
-// 	for _, job := range jobs {
-// 		pipe.ZRem(worker.ctx, queue.UrlsProcessingQueue, job.Member.(string))
-// 	}
-//
-// 	_, err := pipe.Exec(worker.ctx)
-// 	if err != nil {
-// 		return err
-// 	}
-//
-// 	return nil
-// }
-
-func (worker *Worker) updateDatabaseAndRedis(page *utils.WebPage) error {
-	payload := struct {
-		HtmlContent string `json:"html_content"`
-		Timestamp   int64  `json:"timestamp"`
-	}{
-		string(*page.HtmlContent),
-		time.Now().Unix(),
-	}
-	payloadJSON, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	if err := worker.redisClient.UpdateRedis(worker.workerCtx, &payloadJSON, page); err != nil {
-		return fmt.Errorf("failed to update queues: %w", err)
-	}
-
 	return nil
 }
 

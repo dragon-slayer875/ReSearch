@@ -20,7 +20,7 @@ var (
 	errNotOkayHttpCode  = fmt.Errorf("http status code not in range of 200 - 300")
 )
 
-func (worker *Worker) crawlUrl(page *utils.WebPage) (err error) {
+func (worker *Worker) crawlUrl(page *utils.CrawledPage) (err error) {
 	allowedResourceType := false
 
 	var resp *http.Response
@@ -33,6 +33,8 @@ func (worker *Worker) crawlUrl(page *utils.WebPage) (err error) {
 	if err != nil {
 		return err
 	}
+
+	page.CrawledAt = time.Now().Unix()
 
 	defer func() {
 		if deferErr := resp.Body.Close(); deferErr != nil {
@@ -82,7 +84,7 @@ func (worker *Worker) crawlUrl(page *utils.WebPage) (err error) {
 	return nil
 }
 
-func (worker *Worker) discoverAndQueueUrls(page *utils.WebPage, htmlBytes []byte) (*[]string, *[]redisLib.Z, *map[string][]any, error) {
+func (worker *Worker) discoverAndQueueUrls(page *utils.CrawledPage, htmlBytes []byte) (*[]string, *[]redisLib.Z, *map[string][]any, error) {
 	uniqueUrls := make(map[string]struct{})
 	domainsAndUrls := make(map[string][]any)
 	domainQueueMembers := make([]redisLib.Z, 0)
