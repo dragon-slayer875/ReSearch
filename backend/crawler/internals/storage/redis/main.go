@@ -10,12 +10,14 @@ import (
 )
 
 const (
-	DomainPendingQueue  = "crawl:domain_pending"
-	UrlsProcessingQueue = "crawl:urls_processing"
-	IndexPendingQueue   = "index:pending"
-	FreshHashKey        = "crawl:fresh"
-	DomainDelayHashKey  = "crawl:domain_delays"
-	CrawlQueuePrefix    = "cq:"
+	DomainPendingQueue    = "crawl:domain_pending"
+	UrlsProcessingQueue   = "crawl:urls_processing"
+	IndexPendingQueue     = "index:pending"
+	FreshHashKey          = "crawl:fresh"
+	DomainDelayHashKey    = "crawl:domain_delays"
+	linksHashKey          = "links"
+	backlinksSetKeyPrefix = "bl:"
+	CrawlQueuePrefix      = "cq:"
 )
 
 type Job struct {
@@ -201,6 +203,9 @@ func (rc *RedisClient) UpdateRedis(ctx context.Context, payloadJSON *[]byte, pag
 	for domain, urls := range *page.DomainAndUrls {
 		pipe.LPush(ctx, CrawlQueuePrefix+domain, urls...)
 	}
+
+	// Set links for backlinks and outlinks processing
+	pipe.HSet(ctx, linksHashKey, page.Url, *page.Outlinks)
 
 	// Store contents and queue for indexing
 	pipe.Set(ctx, page.Url, *payloadJSON, 0)

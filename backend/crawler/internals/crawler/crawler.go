@@ -403,18 +403,12 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 // }
 
 func (worker *Worker) updateDatabaseAndRedis(page *utils.WebPage) error {
-	id, err := worker.postgresClient.UpdateDatabase(worker.workerCtx, page.Url, page.Outlinks)
-	if err != nil {
-		return fmt.Errorf("failed to update storage: %w", err)
-	}
-
 	payload := struct {
-		Id          int64  `json:"id"`
-		Url         string `json:"url"`
 		HtmlContent string `json:"html_content"`
 		Timestamp   int64  `json:"timestamp"`
 	}{
-		id, page.Url, string(*page.HtmlContent), time.Now().Unix(),
+		string(*page.HtmlContent),
+		time.Now().Unix(),
 	}
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
