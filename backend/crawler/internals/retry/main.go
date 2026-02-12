@@ -58,7 +58,6 @@ func (r *Retryer) Do(ctx context.Context, operation func() error, isRetryable fu
 		lastErr = err
 
 		if !isRetryable(err) {
-			r.logger.Debug("Non-retryable error encountered")
 			return err
 		}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crawler/internals/retry"
 	"crawler/internals/utils"
+	"encoding/json"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -18,10 +19,10 @@ const (
 )
 
 type hashedPage struct {
-	Url         string   `redis:"url"`
-	HtmlContent string   `redis:"html_content"`
-	Timestamp   int64    `redis:"timestamp"`
-	Outlinks    []string `redis:"outlinks"`
+	Url         string   `json:"url"`
+	HtmlContent string   `json:"html_content"`
+	Timestamp   int64    `json:"timestamp"`
+	Outlinks    []string `json:"outlinks"`
 }
 
 type RedisClient struct {
@@ -187,6 +188,16 @@ func (rc *RedisClient) HExists(ctx context.Context, key string, field string) *r
 }
 
 func (rc *RedisClient) UpdateRedis(ctx context.Context, page *utils.CrawledPage) error {
+	pageJson, err := json.Marshal(hashedPage{
+		page.Url,
+		string(*page.HtmlContent),
+		page.CrawledAt,
+		*page.Outlinks,
+	})
+	if err != nil {
+		return err
+	}
+
 	pipe := rc.Client.TxPipeline()
 
 	// Update domain crawl delay and set page as fresh
@@ -204,12 +215,7 @@ func (rc *RedisClient) UpdateRedis(ctx context.Context, page *utils.CrawledPage)
 	}
 
 	// Store contents and queue for indexing
-	pipe.HSet(ctx, page.Url, hashedPage{
-		page.Url,
-		string(*page.HtmlContent),
-		page.CrawledAt,
-		*page.Outlinks,
-	})
+	pipe.Set(ctx, page.Url, pageJson, 0)
 	pipe.LPush(ctx, IndexPendingQueue, page.Url)
 
 	return rc.retryer.Do(ctx, func() error {
