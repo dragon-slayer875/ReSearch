@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// TODO: reconsider what struct fields need to be exported
 type Retryer struct {
 	MaxRetries        int
 	InitialBackoff    time.Duration
@@ -58,7 +59,6 @@ func (r *Retryer) Do(ctx context.Context, operation func() error, isRetryable fu
 		lastErr = err
 
 		if !isRetryable(err) {
-			r.logger.Debug("Non-retryable error encountered")
 			return err
 		}
 

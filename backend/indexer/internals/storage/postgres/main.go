@@ -2,11 +2,14 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"indexer/internals/retry"
 	"indexer/internals/storage/database"
 	"indexer/internals/utils"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -62,7 +65,9 @@ func (pc *Client) Close() {
 	pc.pool.Close()
 }
 
-func (pc *Client) UpdateStorage(ctx context.Context, jobId int64, wordDataBatch *[]database.BatchInsertWordDataParams, processedJob *ProcessedJob) error {
+func (pc *Client) UpdateStorage(ctx context.Context, wordDataBatch *[]database.BatchInsertWordDataParams, linksBatch *[]database.BatchInsertLinksParams, processedPage *utils.IndexerPage) error {
+	linkInsertErrs := make([]error, len(*linksBatch))
+
 	err := pc.retryer.Do(ctx, func() (lastErr error) {
 		tx, lastErr := pc.pool.Begin(ctx)
 		if lastErr != nil {
@@ -79,10 +84,14 @@ func (pc *Client) UpdateStorage(ctx context.Context, jobId int64, wordDataBatch 
 		queriesWithTx := pc.queries.WithTx(tx)
 
 		lastErr = queriesWithTx.InsertUrlData(ctx, database.InsertUrlDataParams{
-			UrlID:       jobId,
-			Title:       processedJob.Title,
-			Description: processedJob.Description,
-			RawContent:  processedJob.RawTextContent})
+			Url:            processedPage.Url,
+			Title:          processedPage.Title,
+			Description:    processedPage.Description,
+			ContentSummary: processedPage.TextContentSummary,
+			CrawledAt: pgtype.Timestamp{
+				Time:  time.Unix(processedPage.Timestamp, 0),
+				Valid: true,
+			}})
 
 		if lastErr != nil {
 			return lastErr
@@ -93,14 +102,21 @@ func (pc *Client) UpdateStorage(ctx context.Context, jobId int64, wordDataBatch 
 			return lastErr
 		}
 
+		linksInsertResults := queriesWithTx.BatchInsertLinks(ctx, *linksBatch)
+		linksInsertResults.Exec(func(i int, err error) {
+			linkInsertErrs = append(linkInsertErrs, err)
+		})
+
 		return tx.Commit(ctx)
 	}, utils.IsRetryablePostgresError)
 
-	return err
-}
+	if err != nil {
+		return err
+	}
 
-func (pc *Client) UpdateTfIdf(ctx context.Context) error {
-	return pc.retryer.Do(ctx, func() error {
-		return pc.queries.UpdateTfIdf(ctx)
-	}, utils.IsRetryablePostgresError)
+	if len(linkInsertErrs) == 0 {
+		return nil
+	}
+
+	return errors.Join(linkInsertErrs...)
 }

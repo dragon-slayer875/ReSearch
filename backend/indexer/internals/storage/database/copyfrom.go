@@ -30,7 +30,7 @@ func (r *iteratorForBatchInsertWordData) Next() bool {
 func (r iteratorForBatchInsertWordData) Values() ([]interface{}, error) {
 	return []interface{}{
 		r.rows[0].Word,
-		r.rows[0].UrlID,
+		r.rows[0].Url,
 		r.rows[0].PositionBits,
 		r.rows[0].TermFrequency,
 	}, nil
@@ -42,5 +42,5 @@ func (r iteratorForBatchInsertWordData) Err() error {
 
 // Batch operations
 func (q *Queries) BatchInsertWordData(ctx context.Context, arg []BatchInsertWordDataParams) (int64, error) {
-	return q.db.CopyFrom(ctx, []string{"word_data"}, []string{"word", "url_id", "position_bits", "term_frequency"}, &iteratorForBatchInsertWordData{rows: arg})
+	return q.db.CopyFrom(ctx, []string{"word_data"}, []string{"word", "url", "position_bits", "term_frequency"}, &iteratorForBatchInsertWordData{rows: arg})
 }

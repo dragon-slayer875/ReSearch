@@ -2,7 +2,6 @@ package indexer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"indexer/internals/config"
 	"indexer/internals/contentProcessing"
@@ -81,38 +80,6 @@ func (i *Indexer) Start() {
 			worker.work()
 		}()
 	}
-	// wg.Add(1)
-	// go func() {
-	// 	defer wg.Done()
-	//
-	// 	// transfer urls in processing queue which are older than 30 minute to pending queue
-	// 	for {
-	// 		processingJobs, err := i.redisClient.ZRangeByScore(i.ctx, queue.ProcessingQueue, &redis.ZRangeBy{
-	// 			Min:    "0",
-	// 			Max:    strconv.FormatInt(time.Now().Add(-time.Minute*30).Unix(), 10),
-	// 			Offset: 0,
-	// 			Count:  100,
-	// 		}).Result()
-	// 		if err != nil {
-	// 			i.logger.Error("Error fetching processing jobs", zap.Error(err))
-	// 			time.Sleep(2 * time.Second)
-	// 			continue
-	// 		}
-	//
-	// 		if len(processingJobs) == 0 {
-	// 			time.Sleep(2 * time.Second)
-	// 			continue
-	// 		}
-	//
-	// 		for _, job := range processingJobs {
-	// 			if err := i.requeueJob(job); err != nil {
-	// 				i.logger.Error("Error requeuing job", zap.Error(err))
-	// 			}
-	// 		}
-	//
-	// 	}
-	//
-	// }()
 
 	wg.Wait()
 }
@@ -131,41 +98,41 @@ func (w *Worker) work() {
 		if err != nil {
 			switch err {
 			case redisLib.Nil:
-				w.logger.Info("No urls in queue")
+				w.logger.Info("No pages in queue")
 				continue
 			default:
-				w.logger.Fatal("Failed to get url", zap.Error(err))
+				w.logger.Fatal("Failed to get page", zap.Error(err))
 			}
 		}
 
 		loggerWithoutUrl := w.logger
 		w.logger = w.logger.With(zap.String("url", url))
 
-		jobDetailsStr, err := w.redisClient.GetUrlContent(w.workerCtx, url)
+		crawledPageContent, err := w.redisClient.GetUrlContent(w.workerCtx, url)
+		// TODO: Handle nil errors
 		if err != nil {
-			w.logger.Fatal("Failed to get url contents. Add url to crawl queue again", zap.Error(err))
+			w.logger.Fatal("Failed to get page contents. Add url to crawl queue again", zap.Error(err))
 		}
 
-		job := &redis.IndexJob{}
-		if err := json.Unmarshal([]byte(jobDetailsStr), job); err != nil {
-			w.logger.Fatal("Failed to unmarshal job", zap.Error(err))
-		}
+		w.logger.Info("Processing page")
 
-		w.logger.Info("Processing url")
-
-		processedJob, err := contentProcessing.ProcessWebpage(job)
+		processedPage, err := contentProcessing.ProcessCrawledPage(crawledPageContent)
 		if err != nil {
 			w.logger.Error("Error processing webpage", zap.Error(err))
 			continue
 		}
 
-		postingsList := utils.CreatePostingsList(processedJob.CleanTextContent, job.JobId)
+		w.logger.Info("Creating postings list")
 
-		if err := w.updateQueuesAndStorage(postingsList, job.Url, job.JobId, processedJob); err != nil {
-			w.logger.Fatal("Error updating queues for job", zap.Error(err), zap.String("url", job.Url))
+		processedPage.PostingsList = utils.CreatePostingsList(processedPage.CleanTextContent, processedPage.Url)
+
+		w.logger.Info("Saving processed page")
+
+		if err := w.updateQueuesAndStorage(processedPage); err != nil {
+			w.logger.Fatal("Error updating queues for job", zap.Error(err))
 		}
 
-		w.logger.Info("Successfully processed job:", zap.Int64("id", job.JobId))
+		w.logger.Info("Successfully indexed page")
 
 		w.logger = loggerWithoutUrl
 	}
@@ -183,41 +150,30 @@ func (w *Worker) getNextUrl() (string, error) {
 	return url, nil
 }
 
-func (w *Worker) updateQueuesAndStorage(postingsList *map[string]*utils.Posting, jobUrl string, jobId int64, processedJob *postgres.ProcessedJob) error {
-	wordDataBatch := make([]database.BatchInsertWordDataParams, 0)
+func (w *Worker) updateQueuesAndStorage(processedPage *utils.IndexerPage) error {
+	wordDataBatch := make([]database.BatchInsertWordDataParams, 0, len(*processedPage.PostingsList))
+	linksBatch := make([]database.BatchInsertLinksParams, len(*processedPage.Outlinks))
 
-	for word, posting := range *postingsList {
+	for word, posting := range *processedPage.PostingsList {
 		positionsBytes, err := posting.Positions.ToBytes()
 		if err != nil {
 			w.logger.Warn("Failed to marshal positions for word", zap.String("word", word), zap.Error(err))
 		}
-		postingSerialized := &database.BatchInsertWordDataParams{
+		postingSerialized := database.BatchInsertWordDataParams{
 			Word:          word,
-			UrlID:         posting.DocId,
+			Url:           posting.DocUrl,
 			TermFrequency: posting.Tf,
 			PositionBits:  positionsBytes,
 		}
-		wordDataBatch = append(wordDataBatch, *postingSerialized)
+		wordDataBatch = append(wordDataBatch, postingSerialized)
 	}
 
-	err := w.postgresClient.UpdateStorage(w.workerCtx, jobId, &wordDataBatch, processedJob)
-	if err != nil {
-		return err
+	for idx, outlink := range *processedPage.Outlinks {
+		linksBatch[idx] = database.BatchInsertLinksParams{
+			From: processedPage.Url,
+			To:   outlink,
+		}
 	}
 
-	return w.redisClient.ZRem(w.workerCtx, redis.ProcessingQueue, jobUrl).Err()
+	return w.postgresClient.UpdateStorage(w.workerCtx, &wordDataBatch, &linksBatch, processedPage)
 }
-
-// func (w *Worker) requeueJob(job string) error {
-// 	pipe := w.redisClient.Pipeline()
-//
-// 	pipe.LPush(w.ctx, queue.PendingQueue, job)
-// 	pipe.ZRem(w.ctx, queue.ProcessingQueue, job)
-//
-// 	_, err := pipe.Exec(w.ctx)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to requeue job %s: %w", job, err)
-// 	}
-//
-// 	return nil
-// }

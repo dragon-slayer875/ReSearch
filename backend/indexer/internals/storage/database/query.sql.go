@@ -7,46 +7,50 @@ package database
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type BatchInsertWordDataParams struct {
 	Word          string `json:"word"`
-	UrlID         int64  `json:"url_id"`
+	Url           string `json:"url"`
 	PositionBits  []byte `json:"position_bits"`
 	TermFrequency int32  `json:"term_frequency"`
 }
 
 const insertUrlData = `-- name: InsertUrlData :exec
-INSERT INTO url_data (url_id, title, description, raw_content)
-VALUES ($1, $2, $3, $4)
+INSERT INTO urls (url, title, description, content_summary, crawled_at)
+VALUES ($1, $2, $3, $4, $5)
 `
 
 type InsertUrlDataParams struct {
-	UrlID       int64  `json:"url_id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	RawContent  string `json:"raw_content"`
+	Url            string           `json:"url"`
+	Title          string           `json:"title"`
+	Description    string           `json:"description"`
+	ContentSummary string           `json:"content_summary"`
+	CrawledAt      pgtype.Timestamp `json:"crawled_at"`
 }
 
 // Url Data Queries
 func (q *Queries) InsertUrlData(ctx context.Context, arg InsertUrlDataParams) error {
 	_, err := q.db.Exec(ctx, insertUrlData,
-		arg.UrlID,
+		arg.Url,
 		arg.Title,
 		arg.Description,
-		arg.RawContent,
+		arg.ContentSummary,
+		arg.CrawledAt,
 	)
 	return err
 }
 
 const insertWordData = `-- name: InsertWordData :exec
-INSERT INTO word_data (word, url_id, position_bits, term_frequency)
+INSERT INTO word_data (word, url, position_bits, term_frequency)
 VALUES ($1, $2, $3, $4)
 `
 
 type InsertWordDataParams struct {
 	Word          string `json:"word"`
-	UrlID         int64  `json:"url_id"`
+	Url           string `json:"url"`
 	PositionBits  []byte `json:"position_bits"`
 	TermFrequency int32  `json:"term_frequency"`
 }
@@ -55,34 +59,9 @@ type InsertWordDataParams struct {
 func (q *Queries) InsertWordData(ctx context.Context, arg InsertWordDataParams) error {
 	_, err := q.db.Exec(ctx, insertWordData,
 		arg.Word,
-		arg.UrlID,
+		arg.Url,
 		arg.PositionBits,
 		arg.TermFrequency,
 	)
-	return err
-}
-
-const updateTfIdf = `-- name: UpdateTfIdf :exec
-WITH total_docs AS (
-    SELECT COUNT(DISTINCT url_id)::DOUBLE PRECISION as total 
-    FROM word_data
-),
-word_stats AS (
-    SELECT 
-        word,
-        COUNT(DISTINCT url_id) as doc_count
-    FROM word_data
-    GROUP BY word
-)
-UPDATE word_data wd
-SET 
-    idf = 1 + (ln((SELECT total FROM total_docs) / ws.doc_count::DOUBLE PRECISION)),
-    tf_idf = term_frequency * (1+ ln((SELECT total FROM total_docs) / ws.doc_count::DOUBLE PRECISION))
-FROM word_stats ws
-WHERE wd.word = ws.word
-`
-
-func (q *Queries) UpdateTfIdf(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, updateTfIdf)
 	return err
 }

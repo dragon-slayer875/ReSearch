@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
 	"indexer/internals/retry"
 	"indexer/internals/utils"
 	"time"
@@ -16,11 +17,11 @@ const (
 	PostingProcessingQueue = "post:processing"
 )
 
-type IndexJob struct {
-	JobId       int64  `json:"id"`
-	Url         string `json:"url"`
-	HtmlContent string `json:"html_content"`
-	Timestamp   int64  `json:"timestamp"`
+type CrawledPage struct {
+	Url         string   `json:"url"`
+	HtmlContent string   `json:"html_content"`
+	Timestamp   int64    `json:"timestamp"`
+	Outlinks    []string `json:"outlinks"`
 }
 
 type Client struct {
@@ -178,23 +179,23 @@ func (rc *Client) HGet(ctx context.Context, key string, field string) *redis.Str
 	return redisCmd
 }
 
-func (rc *Client) GetUrlContent(ctx context.Context, url string) (string, error) {
-	pipe := rc.TxPipeline()
-	pipe.ZAdd(ctx, ProcessingQueue, redis.Z{
-		Score:  float64(time.Now().Unix()),
-		Member: url,
-	})
-
-	getCmd := pipe.Get(ctx, url)
+func (rc *Client) GetUrlContent(ctx context.Context, url string) (*CrawledPage, error) {
+	var redisCmd *redis.StringCmd
 
 	err := rc.retryer.Do(ctx, func() error {
-		_, tryErr := pipe.Exec(ctx)
-		return tryErr
+		redisCmd = rc.Client.GetDel(ctx, url)
+
+		return redisCmd.Err()
 	}, utils.IsRetryableRedisError)
 
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return getCmd.Result()
+	page := new(CrawledPage)
+	if err := json.Unmarshal([]byte(redisCmd.Val()), page); err != nil {
+		return nil, err
+	}
+
+	return page, nil
 }

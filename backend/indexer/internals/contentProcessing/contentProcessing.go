@@ -1,31 +1,35 @@
 package contentProcessing
 
 import (
+	"bytes"
 	english "indexer/internals/snowball"
+	"indexer/internals/storage/redis"
+	"indexer/internals/utils"
 	"strings"
 	"unicode"
 
-	"bytes"
 	snowball "github.com/snowballstem/snowball/go"
 	"golang.org/x/net/html"
-	"indexer/internals/storage/postgres"
-	"indexer/internals/storage/redis"
 )
 
-func ProcessWebpage(job *redis.IndexJob) (*postgres.ProcessedJob, error) {
-	doc, err := html.Parse(bytes.NewBufferString(job.HtmlContent))
+func ProcessCrawledPage(crawledPageContent *redis.HashedPage) (*utils.IndexerPage, error) {
+	doc, err := html.Parse(bytes.NewBufferString(crawledPageContent.HtmlContent))
 	if err != nil {
 		return nil, err
 	}
 
 	var textContent string
-	result := postgres.ProcessedJob{}
+	processedPage := &utils.IndexerPage{
+		Url:       crawledPageContent.Url,
+		Timestamp: crawledPageContent.Timestamp,
+		Outlinks:  &crawledPageContent.Outlinks,
+	}
 
 	for descendant := range doc.Descendants() {
 		if descendant.Type == html.ElementNode {
 			switch descendant.Data {
 			case "title":
-				result.Title = string(descendant.FirstChild.Data)
+				processedPage.Title = string(descendant.FirstChild.Data)
 			case "meta":
 				key := false
 			attr_loop:
@@ -39,14 +43,14 @@ func ProcessWebpage(job *redis.IndexJob) (*postgres.ProcessedJob, error) {
 						}
 					case "content":
 						if key {
-							result.Description = attr.Val
+							processedPage.Description = attr.Val
 						}
 					}
 				}
 			case "main":
 				for mainDescendant := range descendant.Descendants() {
 					switch mainDescendant.Data {
-					case "p", "h1", "h2", "h3", "h4", "h5", "h6", "h7", "blockquote":
+					case "p", "h1", "h2", "h3", "h4", "h5", "h6", "h7", "blockquote", "a":
 						for textDescendant := range mainDescendant.Descendants() {
 							if textDescendant.Parent.Data == "annotation" {
 								continue
@@ -62,9 +66,10 @@ func ProcessWebpage(job *redis.IndexJob) (*postgres.ProcessedJob, error) {
 		}
 	}
 
-	result.RawTextContent = textContent
-	if len(textContent) > 100 {
-		result.RawTextContent = textContent[:100]
+	processedPage.TextContentSummary = textContent
+	words := strings.Fields(textContent)
+	if len(words) > 200 {
+		processedPage.TextContentSummary = strings.Join(words, " ")
 	}
 
 	cleanedTextContent := removeStopWords(strings.FieldsFunc(textContent, func(r rune) bool {
@@ -78,9 +83,9 @@ func ProcessWebpage(job *redis.IndexJob) (*postgres.ProcessedJob, error) {
 		return false
 	}))
 	stemmedTextContent := stemWords(cleanedTextContent)
-	result.CleanTextContent = stemmedTextContent
+	processedPage.CleanTextContent = &stemmedTextContent
 
-	return &result, nil
+	return processedPage, nil
 }
 
 func removeStopWords(content []string) []string {
