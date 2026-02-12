@@ -1,12 +1,12 @@
 -- name: UpdateTfIdf :exec
 WITH total_docs AS (
-    SELECT COUNT(DISTINCT url_id)::DOUBLE PRECISION as total 
+    SELECT COUNT(DISTINCT url)::DOUBLE PRECISION as total 
     FROM word_data
 ),
 word_stats AS (
     SELECT 
         word,
-        COUNT(DISTINCT url_id) as doc_count
+        COUNT(DISTINCT url) as doc_count
     FROM word_data
     GROUP BY word
 )

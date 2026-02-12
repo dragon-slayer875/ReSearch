@@ -20,22 +20,17 @@ type RobotRule struct {
 }
 
 type Url struct {
-	ID        int64            `json:"id"`
-	Url       string           `json:"url"`
-	PageRank  pgtype.Float8    `json:"page_rank"`
-	FetchedAt pgtype.Timestamp `json:"fetched_at"`
-}
-
-type UrlDatum struct {
-	UrlID       int64  `json:"url_id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	RawContent  string `json:"raw_content"`
+	Url            string           `json:"url"`
+	Title          string           `json:"title"`
+	Description    string           `json:"description"`
+	ContentSummary string           `json:"content_summary"`
+	PageRank       pgtype.Float8    `json:"page_rank"`
+	CrawledAt      pgtype.Timestamp `json:"crawled_at"`
 }
 
 type WordDatum struct {
 	Word          string        `json:"word"`
-	UrlID         int64         `json:"url_id"`
+	Url           string        `json:"url"`
 	PositionBits  []byte        `json:"position_bits"`
 	TermFrequency int32         `json:"term_frequency"`
 	Idf           pgtype.Float8 `json:"idf"`
