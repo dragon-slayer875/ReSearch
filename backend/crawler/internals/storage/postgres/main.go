@@ -6,7 +6,6 @@ import (
 	"crawler/internals/storage/database"
 	"crawler/internals/utils"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -74,74 +73,4 @@ func (pc *Client) CreateRobotRules(ctx context.Context, arg database.CreateRobot
 	}, utils.IsRetryablePostgresError)
 
 	return err
-}
-
-func (pc *Client) GetUrl(ctx context.Context, url string) (database.Url, error) {
-	var urlData database.Url
-
-	err := pc.retryer.Do(ctx, func() error {
-		var tryErr error
-		urlData, tryErr = pc.Queries.GetUrl(ctx, url)
-
-		return tryErr
-	}, utils.IsRetryablePostgresError)
-
-	return urlData, err
-}
-
-func (pc *Client) UpdateDatabase(ctx context.Context, url string, links *[]string) (crawledUrlId int64, err error) {
-	err = pc.retryer.Do(ctx, func() (lastErr error) {
-		tx, lastErr := pc.Pool.Begin(ctx)
-		if lastErr != nil {
-			return lastErr
-		}
-
-		defer func() {
-			deferErr := tx.Rollback(ctx)
-			if deferErr != nil && deferErr != pgx.ErrTxClosed {
-				lastErr = deferErr
-			}
-		}()
-
-		queries := &database.Queries{}
-		queriesWithTx := queries.WithTx(tx)
-
-		crawledUrlId, lastErr = queriesWithTx.InsertCrawledUrl(ctx, url)
-		if lastErr != nil {
-			return lastErr
-		}
-
-		insertLinksBatch := make([]database.BatchInsertLinksParams, 0)
-
-		urlInsertResults := queriesWithTx.InsertUrls(ctx, *links)
-		urlInsertResults.QueryRow(func(idx int, id int64, rowErr error) {
-			if rowErr != nil {
-				lastErr = rowErr
-				return
-			}
-			insertLinksBatch = append(insertLinksBatch, database.BatchInsertLinksParams{
-				From: crawledUrlId,
-				To:   id,
-			})
-		})
-		if lastErr != nil {
-			return lastErr
-		}
-
-		linkInsertResults := queriesWithTx.BatchInsertLinks(ctx, insertLinksBatch)
-		linkInsertResults.Exec(func(i int, rowErr error) {
-			if rowErr != nil {
-				lastErr = rowErr
-			}
-		})
-
-		if lastErr != nil {
-			return lastErr
-		}
-
-		return tx.Commit(ctx)
-
-	}, utils.IsRetryablePostgresError)
-
-	return crawledUrlId, err
 }

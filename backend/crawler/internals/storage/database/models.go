@@ -9,8 +9,8 @@ import (
 )
 
 type Link struct {
-	From int64
-	To   int64
+	From string
+	To   string
 }
 
 type RobotRule struct {
@@ -20,22 +20,17 @@ type RobotRule struct {
 }
 
 type Url struct {
-	ID        int64
-	Url       string
-	PageRank  pgtype.Float8
-	FetchedAt pgtype.Timestamp
-}
-
-type UrlDatum struct {
-	UrlID       int64
-	Title       string
-	Description string
-	RawContent  string
+	Url            string
+	Title          string
+	Description    string
+	ContentSummary string
+	PageRank       pgtype.Float8
+	CrawledAt      pgtype.Timestamp
 }
 
 type WordDatum struct {
 	Word          string
-	UrlID         int64
+	Url           string
 	PositionBits  []byte
 	TermFrequency int32
 	Idf           pgtype.Float8

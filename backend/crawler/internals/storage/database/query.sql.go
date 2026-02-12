@@ -7,8 +7,6 @@ package database
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createRobotRules = `-- name: CreateRobotRules :exec
@@ -32,16 +30,6 @@ func (q *Queries) CreateRobotRules(ctx context.Context, arg CreateRobotRulesPara
 	return err
 }
 
-const deleteUrl = `-- name: DeleteUrl :exec
-DELETE FROM urls
-WHERE url = $1
-`
-
-func (q *Queries) DeleteUrl(ctx context.Context, url string) error {
-	_, err := q.db.Exec(ctx, deleteUrl, url)
-	return err
-}
-
 const getRobotRules = `-- name: GetRobotRules :one
 SELECT domain, rules_json, fetched_at FROM robot_rules
 WHERE domain = $1
@@ -52,54 +40,4 @@ func (q *Queries) GetRobotRules(ctx context.Context, domain string) (RobotRule, 
 	var i RobotRule
 	err := row.Scan(&i.Domain, &i.RulesJson, &i.FetchedAt)
 	return i, err
-}
-
-const getUrl = `-- name: GetUrl :one
-SELECT id, url, page_rank, fetched_at FROM urls
-WHERE url = $1 LIMIT 1
-`
-
-func (q *Queries) GetUrl(ctx context.Context, url string) (Url, error) {
-	row := q.db.QueryRow(ctx, getUrl, url)
-	var i Url
-	err := row.Scan(
-		&i.ID,
-		&i.Url,
-		&i.PageRank,
-		&i.FetchedAt,
-	)
-	return i, err
-}
-
-const insertCrawledUrl = `-- name: InsertCrawledUrl :one
-INSERT INTO urls (url) VALUES (
-  $1
-) ON CONFLICT (url)
-DO UPDATE SET
-	fetched_at = NOW()
-RETURNING id
-`
-
-func (q *Queries) InsertCrawledUrl(ctx context.Context, url string) (int64, error) {
-	row := q.db.QueryRow(ctx, insertCrawledUrl, url)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
-const updateRobotRules = `-- name: UpdateRobotRules :exec
-UPDATE robot_rules
-  SET rules_json = $2, fetched_at = $3
-WHERE domain = $1
-`
-
-type UpdateRobotRulesParams struct {
-	Domain    string
-	RulesJson []byte
-	FetchedAt pgtype.Timestamp
-}
-
-func (q *Queries) UpdateRobotRules(ctx context.Context, arg UpdateRobotRulesParams) error {
-	_, err := q.db.Exec(ctx, updateRobotRules, arg.Domain, arg.RulesJson, arg.FetchedAt)
-	return err
 }
