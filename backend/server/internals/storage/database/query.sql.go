@@ -10,22 +10,18 @@ import (
 )
 
 const getSearchResults = `-- name: GetSearchResults :many
-SELECT u.id, u.url, ud.title, ud.description, ud.raw_content, COUNT(DISTINCT wd.word) as word_match_count, ARRAY_AGG(wd.word) matched_words, SUM(wd.tf_idf)::DOUBLE PRECISION as total_relevance 
+SELECT u.url, u.title, u.description, u.content_summary, COUNT(DISTINCT wd.word) as word_match_count, ARRAY_AGG(wd.word) matched_words, SUM(wd.tf_idf)::DOUBLE PRECISION as total_relevance 
 FROM urls u JOIN word_data wd
-ON u.id = wd.url_id
-JOIN url_data ud
-ON u.id = ud.url_id
+ON u.url = wd.url
 WHERE wd.word = ANY($1::text[])
-GROUP BY u.id, ud.title, ud.description, ud.raw_content
-ORDER BY word_match_count DESC, total_relevance DESC
+GROUP BY u.url ORDER BY word_match_count DESC, total_relevance DESC
 `
 
 type GetSearchResultsRow struct {
-	ID             int64       `json:"id"`
 	Url            string      `json:"url"`
 	Title          string      `json:"title"`
 	Description    string      `json:"description"`
-	RawContent     string      `json:"raw_content"`
+	ContentSummary string      `json:"content_summary"`
 	WordMatchCount int64       `json:"word_match_count"`
 	MatchedWords   interface{} `json:"matched_words"`
 	TotalRelevance float64     `json:"total_relevance"`
@@ -41,11 +37,10 @@ func (q *Queries) GetSearchResults(ctx context.Context, dollar_1 []string) ([]Ge
 	for rows.Next() {
 		var i GetSearchResultsRow
 		if err := rows.Scan(
-			&i.ID,
 			&i.Url,
 			&i.Title,
 			&i.Description,
-			&i.RawContent,
+			&i.ContentSummary,
 			&i.WordMatchCount,
 			&i.MatchedWords,
 			&i.TotalRelevance,
@@ -61,13 +56,13 @@ func (q *Queries) GetSearchResults(ctx context.Context, dollar_1 []string) ([]Ge
 }
 
 const getWordDataByURL = `-- name: GetWordDataByURL :many
-SELECT word, url_id, position_bits, term_frequency, idf, tf_idf
+SELECT word, url, position_bits, term_frequency, idf, tf_idf
 FROM word_data
-WHERE url_id = $1
+WHERE url = $1
 `
 
-func (q *Queries) GetWordDataByURL(ctx context.Context, urlID int64) ([]WordDatum, error) {
-	rows, err := q.db.Query(ctx, getWordDataByURL, urlID)
+func (q *Queries) GetWordDataByURL(ctx context.Context, url string) ([]WordDatum, error) {
+	rows, err := q.db.Query(ctx, getWordDataByURL, url)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +72,7 @@ func (q *Queries) GetWordDataByURL(ctx context.Context, urlID int64) ([]WordDatu
 		var i WordDatum
 		if err := rows.Scan(
 			&i.Word,
-			&i.UrlID,
+			&i.Url,
 			&i.PositionBits,
 			&i.TermFrequency,
 			&i.Idf,
@@ -94,7 +89,7 @@ func (q *Queries) GetWordDataByURL(ctx context.Context, urlID int64) ([]WordDatu
 }
 
 const getWordDataByWord = `-- name: GetWordDataByWord :many
-SELECT word, url_id, position_bits, term_frequency, idf, tf_idf
+SELECT word, url, position_bits, term_frequency, idf, tf_idf
 FROM word_data
 WHERE word = $1
 `
@@ -110,7 +105,7 @@ func (q *Queries) GetWordDataByWord(ctx context.Context, word string) ([]WordDat
 		var i WordDatum
 		if err := rows.Scan(
 			&i.Word,
-			&i.UrlID,
+			&i.Url,
 			&i.PositionBits,
 			&i.TermFrequency,
 			&i.Idf,
@@ -127,23 +122,23 @@ func (q *Queries) GetWordDataByWord(ctx context.Context, word string) ([]WordDat
 }
 
 const getWordDataByWordAndURL = `-- name: GetWordDataByWordAndURL :one
-SELECT word, url_id, position_bits, term_frequency, idf, tf_idf
+SELECT word, url, position_bits, term_frequency, idf, tf_idf
 FROM word_data
-WHERE word = $1 AND url_id = $2
+WHERE word = $1 AND url = $2
 `
 
 type GetWordDataByWordAndURLParams struct {
-	Word  string `json:"word"`
-	UrlID int64  `json:"url_id"`
+	Word string `json:"word"`
+	Url  string `json:"url"`
 }
 
 // Word Data Queries
 func (q *Queries) GetWordDataByWordAndURL(ctx context.Context, arg GetWordDataByWordAndURLParams) (WordDatum, error) {
-	row := q.db.QueryRow(ctx, getWordDataByWordAndURL, arg.Word, arg.UrlID)
+	row := q.db.QueryRow(ctx, getWordDataByWordAndURL, arg.Word, arg.Url)
 	var i WordDatum
 	err := row.Scan(
 		&i.Word,
-		&i.UrlID,
+		&i.Url,
 		&i.PositionBits,
 		&i.TermFrequency,
 		&i.Idf,
