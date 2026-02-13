@@ -9,7 +9,8 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import "fmt"
-import "server/internals/storage/database"
+
+import "server/internals/utils"
 
 func IndexPage() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -58,7 +59,7 @@ func IndexPage() templ.Component {
 	})
 }
 
-func ResultsPage(query string, results []database.GetSearchResultsRow) templ.Component {
+func ResultsPage(req *utils.SearchGetRequest, response *utils.SearchGetResponse) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -107,7 +108,7 @@ func ResultsPage(query string, results []database.GetSearchResultsRow) templ.Com
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = searchForm(query).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = searchForm(req.Query).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -125,13 +126,13 @@ func ResultsPage(query string, results []database.GetSearchResultsRow) templ.Com
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = searchResults(results).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = searchResults(req, response).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = base(fmt.Sprintf("%s - reSearch", query)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = base(fmt.Sprintf("%s - reSearch", req.Query)).Render(templ.WithChildren(ctx, templ_7745c5c3_Var4), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

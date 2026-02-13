@@ -18,21 +18,19 @@ func ServeIndex() fiber.Handler {
 
 func ServeResults(service *services.SearchService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		var req searchGetRequest
+		req := new(utils.SearchGetRequest)
 
-		if err := c.Bind().Query(&req); err != nil {
+		if err := c.Bind().Query(req); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 
-		cleanedQuery := utils.CleanQuery(req.Query)
-
-		query_results, err := service.GetSearchResults(c.Context(), cleanedQuery, req.Page, req.Limit)
+		query_results, err := service.GetSearchResults(c.Context(), req)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
-		return utils.Render(c, templates.ResultsPage(req.Query, query_results))
+		return utils.Render(c, templates.ResultsPage(req, query_results))
 	}
 }
 

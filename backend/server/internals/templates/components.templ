@@ -1,6 +1,8 @@
 package templates
 
 import "server/internals/storage/database"
+import "server/internals/utils"
+import "fmt"
 
 templ base(title string) {
 	<!DOCTYPE html>
@@ -56,22 +58,34 @@ templ index() {
 	}
 }
 
-templ searchResults(results []database.GetSearchResultsRow) {
+templ searchResults(req *utils.SearchGetRequest, response *utils.SearchGetResponse) {
 	@mainContainer() {
-		if len(results) == 0 {
+		if response.Count == 0 {
 			<div style="flex: 1; width: 100%; display: flex; justify-content: center; align-items: center;">
 				Sorry nothing found. Try adding resources to our crawlerboard
 			</div>
 		} else {
 			<div style="flex: 1; justify-content: space-around; display: flex;">
-				<div style="display: flex; flex-direction:column; gap: 2rem; max-width: 40rem;">
-					for _, result := range results {
-						@searchResult(result)
-					}
+				<div style="display: flex; gap: 1rem; flex-direction: column; align-items: center;">
+					<div style="display: flex; flex-direction:column; gap: 2rem; max-width: 40rem;">
+						Found { response.Count } results
+						for _, result := range response.Results {
+							@searchResult(result)
+						}
+					</div>
+					@pagination(req.Query, response.Pages)
 				</div>
 			</div>
 		}
 	}
+}
+
+templ pagination(query string, pages int) {
+	<div class="pagination">
+		for idx := range pages {
+			<a href={ fmt.Sprintf("?query=%s&page=%d", query, idx+1) }>{ idx+1 }</a>
+		}
+	</div>
 }
 
 templ searchResult(result database.GetSearchResultsRow) {

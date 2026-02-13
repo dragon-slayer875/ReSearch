@@ -1,7 +1,8 @@
 package templates
 
 import "fmt"
-import "server/internals/storage/database"
+
+import "server/internals/utils"
 
 templ IndexPage() {
 	@base("reSearch") {
@@ -9,14 +10,14 @@ templ IndexPage() {
 	}
 }
 
-templ ResultsPage(query string, results []database.GetSearchResultsRow) {
-	@base(fmt.Sprintf("%s - reSearch", query)) {
+templ ResultsPage(req *utils.SearchGetRequest, response *utils.SearchGetResponse) {
+	@base(fmt.Sprintf("%s - reSearch", req.Query)) {
 		@header() {
 			<div style="width: 100%; display:flex; gap: 2rem;">
 				<a id="header-logo" class="logo" href="/">
 					<h1>rS</h1>
 				</a>
-				@searchForm(query)
+				@searchForm(req.Query)
 			</div>
 			<div id="header-actions">
 				<a id="header-logo-mobile" class="logo" href="/">
@@ -27,7 +28,7 @@ templ ResultsPage(query string, results []database.GetSearchResultsRow) {
 				</form>
 			</div>
 		}
-		@searchResults(results)
+		@searchResults(req, response)
 	}
 }
 
