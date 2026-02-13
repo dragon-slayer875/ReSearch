@@ -12,13 +12,15 @@ import (
 	"golang.org/x/net/html"
 )
 
-func ProcessCrawledPage(crawledPageContent *redis.HashedPage) (*utils.IndexerPage, error) {
+func ProcessCrawledPage(crawledPageContent *redis.CrawledPage) (*utils.IndexerPage, error) {
 	doc, err := html.Parse(bytes.NewBufferString(crawledPageContent.HtmlContent))
 	if err != nil {
 		return nil, err
 	}
 
-	var textContent string
+	var textContent strings.Builder
+	var textContentSummary strings.Builder
+
 	processedPage := &utils.IndexerPage{
 		Url:       crawledPageContent.Url,
 		Timestamp: crawledPageContent.Timestamp,
@@ -50,13 +52,17 @@ func ProcessCrawledPage(crawledPageContent *redis.HashedPage) (*utils.IndexerPag
 			case "main":
 				for mainDescendant := range descendant.Descendants() {
 					switch mainDescendant.Data {
-					case "p", "h1", "h2", "h3", "h4", "h5", "h6", "h7", "blockquote", "a":
+					case "h1", "h2", "h3", "h4", "h5", "h6", "h7", "blockquote", "p":
 						for textDescendant := range mainDescendant.Descendants() {
-							if textDescendant.Parent.Data == "annotation" {
+							switch textDescendant.Parent.Data {
+							case "annotation", "style", "script":
 								continue
 							}
 							if textDescendant.Type == html.TextNode {
-								textContent += " " + textDescendant.Data
+								textContent.WriteString(textDescendant.Data)
+								if mainDescendant.Data == "p" {
+									textContentSummary.WriteString(textDescendant.Data)
+								}
 							}
 						}
 					}
@@ -66,13 +72,14 @@ func ProcessCrawledPage(crawledPageContent *redis.HashedPage) (*utils.IndexerPag
 		}
 	}
 
-	processedPage.TextContentSummary = textContent
-	words := strings.Fields(textContent)
+	processedPage.TextContentSummary = textContentSummary.String()
+
+	words := strings.Fields(processedPage.TextContentSummary)
 	if len(words) > 200 {
-		processedPage.TextContentSummary = strings.Join(words, " ")
+		processedPage.TextContentSummary = strings.Join(words[:200], " ")
 	}
 
-	cleanedTextContent := removeStopWords(strings.FieldsFunc(textContent, func(r rune) bool {
+	cleanedTextContent := removeStopWords(strings.FieldsFunc(textContent.String(), func(r rune) bool {
 		// Split on punctuation except apostrophes, or whitespace
 		if unicode.IsSpace(r) {
 			return true
