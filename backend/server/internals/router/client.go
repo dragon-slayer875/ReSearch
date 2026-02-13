@@ -15,7 +15,7 @@ import (
 	// "github.com/gofiber/fiber/v3/middleware/keyauth"
 )
 
-func setupClient(app fiber.Router, linksService *services.LinksService, crawlerBoardService *services.CrawlerBoardService) {
+func setupClient(app fiber.Router, linksService *services.SearchService, crawlerBoardService *services.CrawlerBoardService) {
 	app.Get("/", handlers.ServeIndex())
 
 	app.Get("/search", handlers.ServeResults(linksService))

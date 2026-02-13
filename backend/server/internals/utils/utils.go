@@ -13,7 +13,7 @@ import (
 	snowball "github.com/snowballstem/snowball/go"
 )
 
-func StemWords(content []string) []string {
+func stemWords(content []string) []string {
 	var stemmedWords []string
 	env := snowball.NewEnv("")
 	english.Stem(env)
@@ -27,7 +27,7 @@ func StemWords(content []string) []string {
 	return stemmedWords
 }
 
-func RemoveStopWords(content []string) []string {
+func removeStopWords(content []string) []string {
 	var filteredWords []string
 
 	for _, word := range content {
@@ -38,6 +38,14 @@ func RemoveStopWords(content []string) []string {
 	}
 
 	return filteredWords
+}
+
+func CleanQuery(query string) *[]string {
+	querySplit := strings.Fields(query)
+	filteredWords := removeStopWords(querySplit)
+	stemmedQuery := stemWords(filteredWords)
+
+	return &stemmedQuery
 }
 
 func NormalizeURL(parentUrl, newUrl string) (string, bool, error) {

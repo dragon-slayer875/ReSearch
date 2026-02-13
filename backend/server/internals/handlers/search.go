@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"server/internals/services"
+	"server/internals/utils"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/log"
@@ -10,11 +11,12 @@ import (
 type searchGetRequest struct {
 	// Sort  string `query:"sort,default:score" validate:"oneof=score time"`
 	// Order string `query:"order,default:dsc" validate:"oneof=asc dsc"`
-	Page  int    `query:"page,default:1" validate:"gt=0"`
+	Limit int32  `query:"limit,default:10" validate:"gt=0"`
+	Page  int32  `query:"page,default:1" validate:"gt=0"`
 	Query string `query:"query"`
 }
 
-func GetQuery(service *services.LinksService) fiber.Handler {
+func GetQuery(service *services.SearchService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		var req searchGetRequest
 
@@ -22,7 +24,9 @@ func GetQuery(service *services.LinksService) fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 
-		query_results, err := service.GetLinks(c.Context(), req.Query)
+		cleanedQuery := utils.CleanQuery(req.Query)
+
+		query_results, err := service.GetSearchResults(c.Context(), cleanedQuery, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)

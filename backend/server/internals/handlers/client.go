@@ -16,7 +16,7 @@ func ServeIndex() fiber.Handler {
 	}
 }
 
-func ServeResults(service *services.LinksService) fiber.Handler {
+func ServeResults(service *services.SearchService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		var req searchGetRequest
 
@@ -24,7 +24,9 @@ func ServeResults(service *services.LinksService) fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 
-		query_results, err := service.GetLinks(c.Context(), req.Query)
+		cleanedQuery := utils.CleanQuery(req.Query)
+
+		query_results, err := service.GetSearchResults(c.Context(), cleanedQuery, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)

@@ -9,13 +9,33 @@ import (
 	"context"
 )
 
+const getSearchResultCount = `-- name: GetSearchResultCount :one
+SELECT COUNT(DISTINCT u.url) as total_results
+FROM urls u 
+JOIN word_data wd ON u.url = wd.url
+WHERE wd.word = ANY($1::text[])
+`
+
+func (q *Queries) GetSearchResultCount(ctx context.Context, dollar_1 []string) (int64, error) {
+	row := q.db.QueryRow(ctx, getSearchResultCount, dollar_1)
+	var total_results int64
+	err := row.Scan(&total_results)
+	return total_results, err
+}
+
 const getSearchResults = `-- name: GetSearchResults :many
 SELECT u.url, u.title, u.description, u.content_summary, COUNT(DISTINCT wd.word) as word_match_count, ARRAY_AGG(wd.word) matched_words, SUM(wd.tf_idf)::DOUBLE PRECISION as total_relevance 
 FROM urls u JOIN word_data wd
 ON u.url = wd.url
 WHERE wd.word = ANY($1::text[])
-GROUP BY u.url ORDER BY word_match_count DESC, total_relevance DESC
+GROUP BY u.url ORDER BY word_match_count DESC, total_relevance DESC LIMIT $2 OFFSET $3
 `
+
+type GetSearchResultsParams struct {
+	Column1 []string `json:"column_1"`
+	Limit   int32    `json:"limit"`
+	Offset  int32    `json:"offset"`
+}
 
 type GetSearchResultsRow struct {
 	Url            string      `json:"url"`
@@ -27,8 +47,8 @@ type GetSearchResultsRow struct {
 	TotalRelevance float64     `json:"total_relevance"`
 }
 
-func (q *Queries) GetSearchResults(ctx context.Context, dollar_1 []string) ([]GetSearchResultsRow, error) {
-	rows, err := q.db.Query(ctx, getSearchResults, dollar_1)
+func (q *Queries) GetSearchResults(ctx context.Context, arg GetSearchResultsParams) ([]GetSearchResultsRow, error) {
+	rows, err := q.db.Query(ctx, getSearchResults, arg.Column1, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}

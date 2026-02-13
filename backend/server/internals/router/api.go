@@ -14,19 +14,19 @@ import (
 )
 
 func SetupRoutes(app fiber.Router, dbPool *pgxpool.Pool, redisClient *redis.Client) {
-	linksService := services.NewLinksService(dbPool)
+	searchService := services.NewSearchService(dbPool)
 	crawlerBoardService := services.NewCrawlerBoardService(redisClient)
 
-	setupClient(app, linksService, crawlerBoardService)
-	setupApiRoutes(app.Group("/api/v1"), linksService, crawlerBoardService)
+	setupClient(app, searchService, crawlerBoardService)
+	setupApiRoutes(app.Group("/api/v1"), searchService, crawlerBoardService)
 }
 
-func setupApiRoutes(app fiber.Router, linksService *services.LinksService, crawlerBoardService *services.CrawlerBoardService) {
+func setupApiRoutes(app fiber.Router, linksService *services.SearchService, crawlerBoardService *services.CrawlerBoardService) {
 	apiSearchRouter(app.Group("/search"), linksService)
 	apiCrawlerBoardRouter(app.Group("/crawlerboard"), crawlerBoardService)
 }
 
-func apiSearchRouter(app fiber.Router, service *services.LinksService) {
+func apiSearchRouter(app fiber.Router, service *services.SearchService) {
 	app.Get("/:query", handlers.GetQuery(service))
 }
 
