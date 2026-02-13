@@ -110,5 +110,6 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 }
 
 func (cb *CrawlerBoardService) RejectSubmissions(ctx context.Context, submissions []string) (int64, error) {
-	return cb.redisClient.ZRem(ctx, redis.CrawlerboardKey, utils.ToAnySlice(submissions)...).Result()
+	transformedSubmissions := utils.ToAnySlice(submissions)
+	return cb.redisClient.ZRem(ctx, redis.CrawlerboardKey, transformedSubmissions...).Result()
 }

@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/a-h/templ"
+	"github.com/gofiber/fiber/v3"
 	snowball "github.com/snowballstem/snowball/go"
 )
 
@@ -92,6 +94,11 @@ func isUrlOfAllowedResourceType(ext string) bool {
 	// ".bmp", ".tiff", ".ico",
 
 	return slices.Contains(commonWebAndImgExtensions, ext)
+}
+
+func Render(c fiber.Ctx, component templ.Component) error {
+	c.Set("Content-Type", "text/html")
+	return component.Render(c.Context(), c.Response().BodyWriter())
 }
 
 func ToAnySlice[Type any](slice []Type) []any {

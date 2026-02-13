@@ -81,12 +81,12 @@ func RejectSubmissions(service *services.CrawlerBoardService) fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 
-		successfulSubmissions, err := service.RejectSubmissions(c.Context(), body.Submissions)
+		rejectedSubmissions, err := service.RejectSubmissions(c.Context(), body.Submissions)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
-		return c.JSON(successfulSubmissions)
+		return c.JSON(rejectedSubmissions)
 	}
 }

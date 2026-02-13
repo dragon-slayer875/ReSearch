@@ -1,0 +1,291 @@
+* {
+	box-sizing: border-box;
+}
+
+body {
+	min-height: 100dvh;
+	margin: 0;
+	font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
+	display: flex;
+	flex-direction: column;
+	background-color: floralwhite;
+}
+
+h1 {
+	margin: 0;
+	text-align: center;
+}
+
+main {
+	flex: 1;
+	padding: 1rem;
+	display: flex;
+	word-break: break-all;
+}
+
+button {
+	height: 100%;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	padding: 0.5rem 1rem;
+	border: 0;
+	cursor: pointer;
+	transition: box-shadow 0.5s;
+}
+
+button:hover,
+button:focus {
+	outline: 0;
+	box-shadow: 0.3rem 0.3rem black;
+}
+
+.header {
+	position: sticky;
+	top: 0;
+	border-bottom: 1px solid black;
+	display: flex;
+	padding: 2rem;
+	gap: 2rem;
+	z-index: 5;
+	background-color: floralwhite;
+}
+
+.logo {
+	font-weight: 200;
+	color: black;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	text-align: center;
+	aspect-ratio: 1/1;
+	min-width: 2.5rem;
+	position: relative;
+}
+
+#header-actions {
+	display: flex;
+	justify-content: right;
+	width: 100%;
+}
+
+#header-logo-mobile {
+	display: none;
+}
+
+.logo::before {
+	background-color: black;
+}
+
+.logo:hover,
+.logo:focus {
+	color: white;
+}
+
+.logo:focus {
+	background-color: black;
+	outline: none;
+}
+
+.text-action-form {
+	display: flex;
+	gap: 1rem;
+}
+
+
+input[type="text"],
+input[type="url"] {
+	flex: 1;
+	border: 0;
+	outline: 1px solid black;
+	padding: 0 1rem;
+	width: 500px;
+}
+
+/* input[type="text"]:focus, */
+/* input[type="text"]:hover { */
+/* 	box-shadow: 1px 1px 1px black; */
+/* } */
+
+.text-action-btn {
+	background-color: pink;
+}
+
+a {
+	text-decoration: none;
+}
+
+.result-title {
+	color: #007bff;
+}
+
+.result-title::before {
+	background-color: #007bff;
+}
+
+.result-title,
+.logo {
+	position: relative;
+	transition: color 0.3s ease;
+	display: inline-block;
+	overflow: hidden;
+	z-index: 1;
+}
+
+.result-title::before,
+.logo::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: -100%;
+	width: 100%;
+	height: 100%;
+	transition: left 0.3s ease;
+	z-index: -1;
+}
+
+a:hover>.result-title::before,
+.logo:hover::before {
+	left: 0;
+}
+
+a:hover>.result-title,
+a:focus>.result-title,
+.logo:hover,
+.logo:focus {
+	color: white;
+	outline: none;
+}
+
+a:focus>.result-title {
+	background-color: #007bff;
+}
+
+.result-url {
+	color: green;
+	display: block;
+	overflow-x: hidden;
+	text-overflow: ellipsis;
+	max-width: max-content;
+	font-style: normal;
+	font-size: 12px;
+}
+
+.result-description {
+	color: #323232;
+}
+
+table {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	/* overflow: hidden; */
+}
+
+thead,
+tbody {
+	display: flex;
+}
+
+tbody {
+	flex-direction: column;
+}
+
+thead {
+	position: sticky;
+	top: 0;
+	background-color: antiquewhite;
+}
+
+tbody {
+	flex: 1;
+	overflow-y: auto;
+	gap: 1rem;
+}
+
+tr {
+	flex: 1;
+	display: flex;
+	justify-content: center;
+}
+
+label:has(input[type="checkbox"]:checked) {
+	background-color: skyblue;
+}
+
+input[type="checkbox"] {
+	position: absolute;
+	flex: 1;
+	appearance: none;
+	-webkit-appearance: none;
+	-moz-appearance: none;
+	top: 0;
+	left: 0;
+	padding: 0;
+	margin: 0;
+	width: 100%;
+	height: 100%;
+}
+
+.crawlerboard-action-btn {
+	flex: 1;
+
+}
+
+#toast {
+	display: none;
+	position: absolute;
+	z-index: 100;
+	transform: translate(-50%, -50%);
+	margin: 0 auto;
+	background-color: indianred;
+	font-size: 2rem;
+	padding: 1rem 5rem;
+}
+
+@media (max-width: 860px) {
+
+	.search-btn {
+		width: 100%;
+	}
+
+	input[type="text"],
+	input[type="url"] {
+		width: 100%;
+	}
+
+	.header {
+		bottom: 0;
+		order: 1;
+		border-top: 1px solid black;
+		border-bottom: 0;
+		padding-top: 1rem;
+		flex-direction: column;
+	}
+
+	#header-logo {
+		display: none;
+	}
+
+	#header-logo-mobile {
+		display: block;
+	}
+
+	#header-actions {
+		justify-content: space-between;
+	}
+
+
+	.text-action-form {
+		width: 100%;
+	}
+}
+
+.result-description {
+	display: -webkit-box;
+	word-break: break-word;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	line-clamp: 2;
+	-webkit-line-clamp: 2;
+}

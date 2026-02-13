@@ -17,6 +17,7 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/log"
 	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/static"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
@@ -101,6 +102,7 @@ func main() {
 	app.Use(fiberZap.New(fiberZap.Config{
 		Logger: logger,
 	}))
+	app.Use("/", static.New("public"))
 
 	fiberLogger := fiberZap.NewLogger(fiberZap.LoggerConfig{
 		SetLogger: logger.WithOptions(zap.AddCallerSkip(3)),

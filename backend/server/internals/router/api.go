@@ -17,6 +17,7 @@ func SetupRoutes(app fiber.Router, dbPool *pgxpool.Pool, redisClient *redis.Clie
 	linksService := services.NewLinksService(dbPool)
 	crawlerBoardService := services.NewCrawlerBoardService(redisClient)
 
+	setupClient(app, linksService, crawlerBoardService)
 	setupApiRoutes(app.Group("/api/v1"), linksService, crawlerBoardService)
 }
 

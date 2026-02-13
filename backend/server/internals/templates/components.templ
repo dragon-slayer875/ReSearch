@@ -1,0 +1,155 @@
+package templates
+
+import "server/internals/storage/database"
+
+templ base(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title }</title>
+			<script src="/js/htmx.min.js"></script>
+			<link rel="stylesheet" href="/css/app.css"/>
+		</head>
+		<body>
+			<div id="toast">test</div>
+			{ children... }
+		</body>
+	</html>
+}
+
+templ mainContainer() {
+	<main>
+		{ children... }
+	</main>
+}
+
+templ header() {
+	<header class="header">
+		{ children... }
+	</header>
+}
+
+templ searchForm(value string) {
+	<form class="text-action-form" action="/search">
+		<input type="text" name="query" placeholder="reSearch something..." value={ value }/>
+		<button type="submit" class="text-action-btn">
+			@searchIcon()
+		</button>
+	</form>
+}
+
+templ index() {
+	@mainContainer() {
+		<div style="display: flex; flex-direction:column; gap: 1rem; justify-content: center; align-items: center; flex: 1;">
+			<h1
+				style="
+	font-size: 5rem;
+	font-weight: 100;
+			"
+			>
+				reSearch
+			</h1>
+			@searchForm("")
+		</div>
+	}
+}
+
+templ searchResults(results []database.GetSearchResultsRow) {
+	@mainContainer() {
+		if len(results) == 0 {
+			<div style="flex: 1; width: 100%; display: flex; justify-content: center; align-items: center;">
+				Sorry nothing found. Try adding resources to our crawlerboard
+			</div>
+		} else {
+			<div style="flex: 1; justify-content: space-around; display: flex;">
+				<div style="display: flex; flex-direction:column; gap: 2rem; max-width: 40rem;">
+					for _, result := range results {
+						@searchResult(result)
+					}
+				</div>
+			</div>
+		}
+	}
+}
+
+templ searchResult(result database.GetSearchResultsRow) {
+	<div style="display: flex; flex-direction: column; align-items: baseline; gap: 0.3rem;">
+		<a href={ result.Url }>
+			<h3 class="result-title" style="margin: 0; padding: 0;">{ result.Title }</h3>
+			<span class="result-url">{ result.Url }</span>
+		</a>
+		<span class="result-description">
+			if result.Description == "" {
+				{ result.ContentSummary }
+			} else {
+				{ result.Description }
+			}
+		</span>
+	</div>
+}
+
+templ crawlerboardForm() {
+	<form class="text-action-form" hx-post="/crawlerboard" hx-target="#crawlerboard-content">
+		<input type="url" name="submission" placeholder="https://www.example.com"/>
+		<button type="submit" class="text-action-btn">Add</button>
+	</form>
+}
+
+templ crawlerboard(submissions *[]string) {
+	@mainContainer() {
+		<div id="crawlerboard-content" style="flex: 1; display: flex; flex-direction: column; gap: 1rem;">
+			@CrawlerboardContent(submissions)
+			@crawlerboardForm()
+		</div>
+	}
+}
+
+templ CrawlerboardContent(submissions *[]string) {
+	if len(*submissions) == 0 {
+		Sorry nothing to show. Try adding some resources.
+	} else {
+		<form style="flex: 1; display: flex; flex-direction: column;">
+			<table>
+				<tbody>
+					for _, submission := range *submissions {
+						<tr>
+							<td style="flex: 1; padding: 0;">
+								<label style="display: flex; justify-content: space-between; padding: 1rem; position: relative;">
+									<span>{ submission }</span><input type="checkbox" name={ submission }/>
+								</label>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+			<div style="display: flex; width: 100%; flex-direction: column; gap: 1rem;">
+				<button
+					class="crawlerboard-action-btn"
+					hx-post="/crawlerboard/accept"
+					hx-target="#crawlerboard-content"
+				>Accept</button>
+				<button class="crawlerboard-action-btn" hx-delete="/crawlerboard">Reject</button>
+			</div>
+		</form>
+	}
+}
+
+templ searchIcon() {
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		width="24"
+		height="24"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="1"
+		stroke-linecap="round"
+		stroke-linejoin="round"
+		class="lucide lucide-search-icon lucide-search"
+	>
+		<path d="m21 21-4.34-4.34"></path>
+		<circle cx="11" cy="11" r="8"></circle>
+	</svg>
+}
