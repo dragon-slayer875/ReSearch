@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"slices"
-	"strings"
 )
 
 func NormalizeURL(parentUrl, newUrl string) (string, string, bool, error) {
@@ -30,7 +29,7 @@ func NormalizeURL(parentUrl, newUrl string) (string, string, bool, error) {
 		return "", "", allowed, fmt.Errorf("url has no 'Host'")
 	}
 
-	domain := nUrl.Hostname()
+	domain := nUrl.Host
 
 	if nUrl.Scheme == "" {
 		nUrl.Scheme = "https"
@@ -40,7 +39,6 @@ func NormalizeURL(parentUrl, newUrl string) (string, string, bool, error) {
 	allowed = true
 
 	if nUrl.Path != "" {
-		nUrl.Path = strings.TrimSuffix(nUrl.Path, "/")
 		ext = filepath.Ext(nUrl.Path)
 	}
 
