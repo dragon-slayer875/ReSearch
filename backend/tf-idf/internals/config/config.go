@@ -5,8 +5,13 @@ import (
 )
 
 type Config struct {
+	TfIdf   TfIdfConfig   `mapstructure:"tf_idf"`
 	Logging LoggingConfig `mapstructure:"logging"`
 	Retryer RetryerConfig `mapstructure:"retryer"`
+}
+
+type TfIdfConfig struct {
+	Interval string `mapstructure:"interval"`
 }
 
 type LoggingConfig struct {
@@ -28,6 +33,7 @@ func Load(configPath string) (*Config, error) {
 	viper.SetConfigFile(configPath)
 	configReadingErr = viper.ReadInConfig()
 
+	viper.SetDefault("tf_idf.interval", "10m")
 	viper.SetDefault("logging.level", "info")
 	viper.SetDefault("logging.encoding", "json")
 	viper.SetDefault("logging.output_paths", []string{"stderr"})

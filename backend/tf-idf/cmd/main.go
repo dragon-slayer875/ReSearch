@@ -52,6 +52,12 @@ func main() {
 		logger.Fatal("Failed to configure logger", zap.Error(err))
 	}
 
+	interval, err := time.ParseDuration(cfg.TfIdf.Interval)
+	if err != nil {
+		logger.Fatal("Failed to parse interval", zap.Error(err))
+	}
+	logger.Info("Interval configured", zap.Duration("interval", interval))
+
 	err = godotenv.Load(*envPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -90,7 +96,7 @@ func main() {
 
 	logger.Info("Starting...")
 
-	ticker := time.NewTicker(5 * time.Minute)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
