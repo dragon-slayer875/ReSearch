@@ -20,6 +20,8 @@ CREATE TABLE links (
     CONSTRAINT pk_links PRIMARY KEY ("from", "to"),
     CONSTRAINT fk_links FOREIGN KEY ("from") REFERENCES urls(url) ON DELETE CASCADE
 );
+CREATE INDEX idx_links_from ON links("from");
+CREATE INDEX idx_links_to ON links("to");
 
 CREATE TABLE word_data (
     word TEXT NOT NULL,
