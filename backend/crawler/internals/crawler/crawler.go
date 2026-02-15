@@ -99,46 +99,6 @@ func (crawler *Crawler) Start() {
 		}()
 	}
 
-	// wg.Add(1)
-	// go func() {
-	// 	defer wg.Done()
-	// 	worker := NewWorker(crawler.logger.Named("Recovery Worker"), crawler.redisClient, crawler.dbPool, crawler.httpClient, crawler.ctx)
-	// 	worker.logger.Debugln("Recovery Worker initialized")
-	//
-	// 	// transfer urls in processing queue which are older than 30 minute to pending queue
-	// 	for {
-	// 		time.Sleep(30 * time.Minute)
-	//
-	// 		processingJobsJson, err := worker.redisClient.ZRangeByScore(crawler.ctx, queue.ProcessingQueue, &redis.ZRangeBy{
-	// 			Min:    "0",
-	// 			Max:    strconv.FormatInt(time.Now().Add(-time.Minute*30).Unix(), 10),
-	// 			Offset: 0,
-	// 			Count:  100,
-	// 		}).Result()
-	// 		if err != nil {
-	// 			worker.logger.Errorln("Error fetching processing jobs:", err)
-	// 			time.Sleep(20 * time.Second)
-	// 			continue
-	// 		}
-	//
-	// 		processingJobs := make([]redis.Z, 0)
-	// 		for _, jobJson := range processingJobsJson {
-	// 			var job redis.Z
-	// 			if err := json.Unmarshal([]byte(jobJson), &job); err != nil {
-	// 				worker.logger.Errorln("Error unmarshalling job for recovery:", err)
-	// 			}
-	// 			processingJobs = append(processingJobs, job)
-	// 		}
-	//
-	// 		if err := worker.requeueJobs(processingJobs...); err != nil {
-	// 			worker.logger.Errorln("Error requeuing jobs:", processingJobs, "Error:", err)
-	// 		}
-	//
-	// 		worker.logger.Errorln("recovered jobs:", processingJobs)
-	// 	}
-	//
-	// }()
-
 	wg.Wait()
 }
 
