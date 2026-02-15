@@ -89,8 +89,10 @@ func ProcessCrawledPage(crawledPageContent *redis.CrawledPage) (*utils.IndexerPa
 		}
 		return false
 	}))
-	stemmedTextContent := stemWords(cleanedTextContent)
-	processedPage.CleanTextContent = &stemmedTextContent
+
+	// Disabling stemming for now, for testing more precise indexing and querying
+	// stemmedTextContent := stemWords(cleanedTextContent)
+	processedPage.CleanTextContent = &cleanedTextContent
 
 	return processedPage, nil
 }
