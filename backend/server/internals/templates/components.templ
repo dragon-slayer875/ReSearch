@@ -73,17 +73,25 @@ templ searchResults(req *utils.SearchGetRequest, response *utils.SearchGetRespon
 							@searchResult(result)
 						}
 					</div>
-					@pagination(req.Query, response.Pages)
+					@pagination(req, response.Pages)
 				</div>
 			</div>
 		}
 	}
 }
 
-templ pagination(query string, pages int) {
+templ pagination(req *utils.SearchGetRequest, pages int) {
 	<div class="pagination">
 		for idx := range pages {
-			<a href={ fmt.Sprintf("?query=%s&page=%d", query, idx+1) }>{ idx+1 }</a>
+			{{
+				page := int32(idx) + 1
+				currentPage := page == req.Page
+			}}
+			if currentPage {
+				<a id="current-page" href={ fmt.Sprintf("?query=%s&page=%d", req.Query, page) }>{ page }</a>
+			} else {
+				<a href={ fmt.Sprintf("?query=%s&page=%d", req.Query, page) }>{ page }</a>
+			}
 		}
 	</div>
 }
