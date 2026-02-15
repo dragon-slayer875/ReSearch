@@ -43,9 +43,9 @@ func removeStopWords(content []string) []string {
 func CleanQuery(query string) *[]string {
 	querySplit := strings.Fields(query)
 	filteredWords := removeStopWords(querySplit)
-	stemmedQuery := stemWords(filteredWords)
+	// stemmedQuery := stemWords(filteredWords)
 
-	return &stemmedQuery
+	return &filteredWords
 }
 
 func NormalizeURL(parentUrl, newUrl string) (string, bool, error) {
