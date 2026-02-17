@@ -16,12 +16,30 @@ func GetQuery(service *services.SearchService) fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 
-		query_results, err := service.GetSearchResults(c.Context(), req)
+		isFirstPage := req.Page == 1
+
+		contentWords, _, wordsAndSuggestions, err := service.GetSuggestions(c.Context(), req.Query)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
-		return c.JSON(query_results)
+		query_results, totalPages, err := service.GetSearchResults(c.Context(), contentWords, req.Limit, req.Page, isFirstPage)
+		if err != nil {
+			log.Error(err)
+			return fiber.NewError(fiber.StatusInternalServerError)
+		}
+
+		go func() {
+			err = service.CacheQueryData(c.Context(), contentWords, query_results, totalPages, wordsAndSuggestions, isFirstPage)
+			if err != nil {
+				log.Error(err)
+			}
+		}()
+
+		return c.JSON(map[string]any{
+			"query results": query_results,
+			"total pages":   totalPages,
+		})
 	}
 }

@@ -3,6 +3,7 @@ package templates
 import "server/internals/storage/database"
 import "server/internals/utils"
 import "fmt"
+import "net/url"
 
 templ base(title string) {
 	<!DOCTYPE html>
@@ -58,40 +59,75 @@ templ index() {
 	}
 }
 
-templ searchResults(req *utils.SearchGetRequest, response *utils.SearchGetResponse) {
+templ searchResults(data *utils.ResultsPageData) {
 	@mainContainer() {
-		if response.Count == 0 {
-			<div style="flex: 1; width: 100%; display: flex; justify-content: center; align-items: center;">
-				Sorry nothing found. Try adding resources to our crawlerboard
-			</div>
-		} else {
-			<div style="flex: 1; justify-content: space-around; display: flex;">
-				<div style="display: flex; gap: 1rem; flex-direction: column; align-items: center;">
-					<div style="display: flex; flex-direction:column; gap: 2rem; max-width: 40rem;">
-						Found { response.Count } results
-						for _, result := range response.Results {
-							@searchResult(result)
-						}
-					</div>
-					@pagination(req, response.Pages)
+		<div style="flex: 1;">
+			if len(*data.SearchResults) == 0 {
+				<div
+					style="flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2rem;"
+				>
+					<span>
+						Sorry nothing found for <b>{ data.Query }</b>.
+					</span>
+					<span>
+						Show results for
+						<a href={ fmt.Sprintf("?query=%s", url.QueryEscape(data.Suggestion)) }>
+							<b id="suggestion">
+								{ data.Suggestion }
+							</b>
+						</a> instead?
+					</span>
+					<span>
+						Or you can try adding resources to our crawlerboard
+					</span>
 				</div>
-			</div>
-		}
+			} else {
+				<div style="flex: 1; justify-content: space-around; display: flex;">
+					<div style="max-width: 40rem;">
+						if data.Suggestion != "" {
+							<div style="display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 1.5rem;">
+								<span>
+									Showing results for <b>{ data.Query }</b>.
+								</span>
+								<span>
+									Show results for
+									<a href={ fmt.Sprintf("?query=%s", url.QueryEscape(data.Suggestion)) }>
+										<b id="suggestion">
+											{ 
+							data.Suggestion }
+										</b>
+									</a> instead?
+								</span>
+							</div>
+						}
+						<div style="display: flex; flex-direction:column; gap: 2rem;">
+							for _, result := range *data.SearchResults {
+								@searchResult(result)
+							}
+						</div>
+						@pagination(data.Query, data.TotalPages, data.CurrentPage)
+					</div>
+				</div>
+			}
+		</div>
 	}
 }
 
-templ pagination(req *utils.SearchGetRequest, pages int) {
+templ pagination(query string, totalPages, currentPage int64) {
+	{{ page, maxPages := utils.CalculatePages(totalPages, currentPage) }}
+	{{ query = url.QueryEscape(query) }}
 	<div class="pagination">
-		for idx := range pages {
-			{{
-				page := int32(idx) + 1
-				currentPage := page == req.Page
-			}}
-			if currentPage {
-				<a id="current-page" href={ fmt.Sprintf("?query=%s&page=%d", req.Query, page) }>{ page }</a>
-			} else {
-				<a href={ fmt.Sprintf("?query=%s&page=%d", req.Query, page) }>{ page }</a>
+		for  {
+			if page> maxPages {
+				{{ break }}
 			}
+			{{ isCurrentPage := page == currentPage }}
+			if isCurrentPage {
+				<a id="current-page" href={ fmt.Sprintf("?query=%s&page=%d", query, page) }>{ page }</a>
+			} else {
+				<a href={ fmt.Sprintf("?query=%s&page=%d", query, page) }>{ page }</a>
+			}
+			{{ page++ }}
 		}
 	</div>
 }

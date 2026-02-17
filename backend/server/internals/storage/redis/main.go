@@ -7,8 +7,10 @@ import (
 )
 
 const (
-	CrawlerboardKey    = "crawlerboard"
-	DomainPendingQueue = "crawl:domain_pending"
+	CrawlerboardKey          = "crawlerboard"
+	DomainPendingQueue       = "crawl:domain_pending"
+	DictionaryKey            = "dictionary"
+	SearchResultsCachePrefix = "sr:"
 )
 
 func New(ctx context.Context, url string) (*redis.Client, error) {

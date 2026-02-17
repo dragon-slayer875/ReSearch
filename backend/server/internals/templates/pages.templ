@@ -10,14 +10,14 @@ templ IndexPage() {
 	}
 }
 
-templ ResultsPage(req *utils.SearchGetRequest, response *utils.SearchGetResponse) {
-	@base(fmt.Sprintf("%s - reSearch", req.Query)) {
+templ ResultsPage(data *utils.ResultsPageData) {
+	@base(fmt.Sprintf("%s - reSearch", data.Query)) {
 		@header() {
 			<div style="width: 100%; display:flex; gap: 2rem;">
 				<a id="header-logo" class="logo" href="/">
 					<h1>rS</h1>
 				</a>
-				@searchForm(req.Query)
+				@searchForm(data.Query)
 			</div>
 			<div id="header-actions">
 				<a id="header-logo-mobile" class="logo" href="/">
@@ -28,7 +28,7 @@ templ ResultsPage(req *utils.SearchGetRequest, response *utils.SearchGetResponse
 				</form>
 			</div>
 		}
-		@searchResults(req, response)
+		@searchResults(data)
 	}
 }
 

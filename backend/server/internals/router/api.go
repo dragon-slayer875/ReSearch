@@ -14,7 +14,7 @@ import (
 )
 
 func SetupRoutes(app fiber.Router, dbPool *pgxpool.Pool, redisClient *redis.Client) {
-	searchService := services.NewSearchService(dbPool)
+	searchService := services.NewSearchService(dbPool, redisClient)
 	crawlerBoardService := services.NewCrawlerBoardService(redisClient)
 
 	setupClient(app, searchService, crawlerBoardService)

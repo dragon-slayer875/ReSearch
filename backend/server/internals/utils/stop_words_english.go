@@ -332,7 +332,7 @@ var stopWordsEnglish = map[string]struct{}{
 	"Z":          {},
 }
 
-func isStopWord(word string) bool {
+func IsStopWord(word string) bool {
 	_, exists := stopWordsEnglish[word]
 
 	return exists

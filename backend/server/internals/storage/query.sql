@@ -26,3 +26,6 @@ FROM urls u JOIN word_data wd
 ON u.url = wd.url
 WHERE wd.word = ANY($1::text[])
 GROUP BY u.url ORDER BY word_match_count DESC, total_relevance DESC LIMIT $2 OFFSET $3;
+
+-- name: GetIndexedWords :many
+SELECT DISTINCT word from word_data;

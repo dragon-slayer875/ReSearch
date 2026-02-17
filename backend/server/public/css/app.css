@@ -115,24 +115,36 @@ a {
 	text-decoration: none;
 }
 
-.result-title {
+.result-title,
+#suggestion {
 	color: #007bff;
 }
 
-.result-title::before {
+.result-title::before,
+#suggestion::before {
 	background-color: #007bff;
 }
 
 .result-title,
 .logo {
+	display: inline-block;
+}
+
+#suggestion {
+	display: inline-flex;
+}
+
+.result-title,
+#suggestion,
+.logo {
 	position: relative;
 	transition: color 0.3s ease;
-	display: inline-block;
 	overflow: hidden;
 	z-index: 1;
 }
 
 .result-title::before,
+#suggestion::before,
 .logo::before {
 	content: '';
 	position: absolute;
@@ -145,19 +157,23 @@ a {
 }
 
 a:hover>.result-title::before,
-.logo:hover::before {
+.logo:hover::before,
+#suggestion:hover::before {
 	left: 0;
 }
 
 a:hover>.result-title,
 a:focus>.result-title,
 .logo:hover,
-.logo:focus {
+.logo:focus,
+#suggestion:hover,
+#suggestion:focus {
 	color: white;
 	outline: none;
 }
 
-a:focus>.result-title {
+a:focus>.result-title,
+#suggestion:focus {
 	background-color: #007bff;
 }
 
@@ -243,6 +259,35 @@ input[type="checkbox"] {
 	padding: 1rem 5rem;
 }
 
+.pagination {
+	display: flex;
+	margin: 1.5rem 0;
+	justify-content: space-between;
+	margin: 1.5rem;
+}
+
+.pagination>a {
+	color: palevioletred;
+	background-color: floralwhite;
+	border: 2px solid palevioletred;
+	aspect-ratio: 1/1;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	min-width: 2rem;
+	align-items: center;
+}
+
+.pagination>a:hover {
+	color: floralwhite;
+	background-color: palevioletred;
+}
+
+#current-page {
+	color: floralwhite;
+	background-color: palevioletred;
+}
+
 @media (max-width: 860px) {
 
 	.search-btn {
@@ -279,6 +324,15 @@ input[type="checkbox"] {
 	.text-action-form {
 		width: 100%;
 	}
+
+	.pagination {
+		gap: 0.5rem;
+		margin: 1.5rem 0;
+	}
+
+	.pagination>a {
+		min-width: 1.5rem;
+	}
 }
 
 .result-description {
@@ -288,31 +342,4 @@ input[type="checkbox"] {
 	-webkit-box-orient: vertical;
 	line-clamp: 2;
 	-webkit-line-clamp: 2;
-}
-
-.pagination {
-	display: flex;
-	gap: 1rem;
-}
-
-.pagination>a {
-	color: palevioletred;
-	background-color: floralwhite;
-	border: 2px solid palevioletred;
-	aspect-ratio: 1/1;
-	display: flex;
-	justify-content: center;
-	align-items: center;
-	min-width: 2rem;
-	align-items: center;
-}
-
-.pagination>a:hover {
-	color: floralwhite;
-	background-color: palevioletred;
-}
-
-#current-page {
-	color: floralwhite;
-	background-color: palevioletred;
 }

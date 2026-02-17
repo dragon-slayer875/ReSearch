@@ -4,49 +4,26 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
-	english "server/internals/snowball"
-	"slices"
-	"strings"
 
-	"github.com/a-h/templ"
-	"github.com/gofiber/fiber/v3"
-	snowball "github.com/snowballstem/snowball/go"
+	// english "server/internals/snowball"
+	"slices"
+	// snowball "github.com/snowballstem/snowball/go"
 )
 
-func stemWords(content []string) []string {
-	var stemmedWords []string
-	env := snowball.NewEnv("")
-	english.Stem(env)
-
-	for _, word := range content {
-		env.SetCurrent(word)
-		english.Stem(env)
-		stemmedWords = append(stemmedWords, env.Current())
-	}
-
-	return stemmedWords
-}
-
-func removeStopWords(content []string) []string {
-	var filteredWords []string
-
-	for _, word := range content {
-		word = strings.ToLower(word)
-		if !isStopWord(word) {
-			filteredWords = append(filteredWords, word)
-		}
-	}
-
-	return filteredWords
-}
-
-func CleanQuery(query string) *[]string {
-	querySplit := strings.Fields(query)
-	filteredWords := removeStopWords(querySplit)
-	// stemmedQuery := stemWords(filteredWords)
-
-	return &filteredWords
-}
+// Commented for now since currently trying precise indexing and querying
+// func stemWords(content []string) []string {
+// 	var stemmedWords []string
+// 	env := snowball.NewEnv("")
+// 	english.Stem(env)
+//
+// 	for _, word := range content {
+// 		env.SetCurrent(word)
+// 		english.Stem(env)
+// 		stemmedWords = append(stemmedWords, env.Current())
+// 	}
+//
+// 	return stemmedWords
+// }
 
 func NormalizeURL(parentUrl, newUrl string) (string, bool, error) {
 	pUrl, err := url.Parse(parentUrl)
@@ -101,11 +78,6 @@ func isUrlOfAllowedResourceType(ext string) bool {
 	// ".bmp", ".tiff", ".ico",
 
 	return slices.Contains(commonWebAndImgExtensions, ext)
-}
-
-func Render(c fiber.Ctx, component templ.Component) error {
-	c.Set("Content-Type", "text/html")
-	return component.Render(c.Context(), c.Response().BodyWriter())
 }
 
 func ToAnySlice[Type any](slice []Type) []any {

@@ -9,6 +9,30 @@ import (
 	"context"
 )
 
+const getIndexedWords = `-- name: GetIndexedWords :many
+SELECT DISTINCT word from word_data
+`
+
+func (q *Queries) GetIndexedWords(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, getIndexedWords)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var word string
+		if err := rows.Scan(&word); err != nil {
+			return nil, err
+		}
+		items = append(items, word)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getSearchResultCount = `-- name: GetSearchResultCount :one
 SELECT COUNT(DISTINCT u.url) as total_results
 FROM urls u 
