@@ -33,9 +33,9 @@ func (cb *CrawlerBoardService) GetSubmissions(ctx context.Context, order string,
 	return &results, err
 }
 
-func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions []string) ([]any, error) {
+func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions []string) ([]string, error) {
 	sortedSetMembers := make([]redisLib.Z, 0, len(submissions))
-	successfulSubmissions := make([]any, 0, len(submissions))
+	successfulSubmissions := make([]string, 0, len(submissions))
 
 	pipe := cb.redisClient.TxPipeline()
 
@@ -112,4 +112,26 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 func (cb *CrawlerBoardService) RejectSubmissions(ctx context.Context, submissions []string) (int64, error) {
 	transformedSubmissions := utils.ToAnySlice(submissions)
 	return cb.redisClient.ZRem(ctx, redis.CrawlerboardKey, transformedSubmissions...).Result()
+}
+
+func (cb *CrawlerBoardService) RejectAndGetSubmissions(ctx context.Context, submissionsToReject []string, order string, page, limit int) (*[]string, error) {
+	pipe := cb.redisClient.TxPipeline()
+	transformedSubmissions := utils.ToAnySlice(submissionsToReject)
+	pipe.ZRem(ctx, redis.CrawlerboardKey, transformedSubmissions...)
+
+	getCmd := new(redisLib.StringSliceCmd)
+
+	if order == "asc" {
+		getCmd = pipe.ZRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page))
+	} else {
+		getCmd = pipe.ZRevRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page))
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	submissions, err := getCmd.Result()
+	return &submissions, err
 }

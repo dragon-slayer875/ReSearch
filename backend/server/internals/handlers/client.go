@@ -4,7 +4,6 @@ import (
 	"server/internals/services"
 	"server/internals/templates"
 	"server/internals/utils"
-	"strconv"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/log"
@@ -70,7 +69,7 @@ func GetCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler {
 		submissions, err := service.GetSubmissions(c.Context(), req.Order, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
-			return err
+			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
 		return utils.Render(c, templates.Crawlerboard(submissions))
@@ -90,49 +89,60 @@ func AddUrlToCrawlerboard(service *services.CrawlerBoardService) fiber.Handler {
 		_, err := service.AddSubmissions(c.Context(), []string{submission})
 		if err != nil {
 			log.Error(err)
-			return err
+			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
 		c.Status(fiber.StatusCreated)
 
-		submissions, err := service.GetSubmissions(c.Context(), req.Order, req.Page, req.Limit)
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-
-		return utils.Render(c, templates.CrawlerboardContent(submissions))
+		return utils.Render(c, templates.CrawlerboardEntry(submission))
 	}
 
 }
 
 func RejectCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		var req map[string]string
+		var formData map[string][]string
+		var req submissionGetRequest
+
+		if err := c.Bind().Query(&formData); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
 
 		if err := c.Bind().Query(&req); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
-		submissionsToReject := make([]string, 0, len(req))
-
-		for submission := range req {
-			submissionsToReject = append(submissionsToReject, submission)
-		}
-
-		rejectedSubmissions, err := service.RejectSubmissions(c.Context(), submissionsToReject)
+		submissions, err := service.RejectAndGetSubmissions(c.Context(), formData["selected-urls"], req.Order, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
-			return err
+			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
-		return c.SendString(strconv.Itoa(int(rejectedSubmissions)))
-		// submissions, err := service.GetSubmissions(c.Context(), req.Order, req.Page, req.Limit)
-		// if err != nil {
-		// 	log.Error(err)
-		// 	return err
-		// }
-		//
-		// return utils.Render(c, templates.CrawlerboardContent(submissions))
+		c.Status(fiber.StatusOK)
+		return utils.Render(c, templates.CrawlerboardEntries(submissions))
+	}
+}
+
+func AcceptCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		var formData map[string][]string
+		var req submissionGetRequest
+
+		if err := c.Bind().Query(&formData); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+
+		if err := c.Bind().Query(&req); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+
+		_, err := service.AcceptSubmissions(c.Context(), formData["selected-urls"])
+		if err != nil {
+			log.Error(err)
+			return fiber.NewError(fiber.StatusInternalServerError)
+		}
+
+		c.Status(fiber.StatusNoContent)
+		return nil
 	}
 }
