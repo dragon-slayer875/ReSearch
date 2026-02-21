@@ -15,6 +15,11 @@ type ResultsPageData struct {
 	Query         string
 }
 
+type Notifications struct {
+	Success string
+	Failure map[string]string // map of error and output
+}
+
 func Render(c fiber.Ctx, component templ.Component) error {
 	c.Set("Content-Type", "text/html")
 	return component.Render(c.Context(), c.Response().BodyWriter())

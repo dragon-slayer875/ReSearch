@@ -43,14 +43,17 @@ func PostSubmissions(service *services.CrawlerBoardService) fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 
-		failedSubmissions, err := service.AddSubmissions(c.Context(), body.Submissions)
+		successful, failed, err := service.AddSubmissions(c.Context(), &body.Submissions)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
 		c.Status(fiber.StatusCreated)
-		return c.JSON(failedSubmissions)
+		return c.JSON(map[string]any{
+			"successful": *successful,
+			"failed":     failed,
+		})
 	}
 }
 

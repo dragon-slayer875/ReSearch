@@ -11,8 +11,12 @@ body {
 	background-color: floralwhite;
 }
 
-h1 {
+h1,
+h3 {
 	margin: 0;
+}
+
+h1 {
 	text-align: center;
 }
 
@@ -21,6 +25,7 @@ main {
 	padding: 1rem;
 	display: flex;
 	word-break: break-all;
+	justify-content: space-around;
 }
 
 button {
@@ -102,10 +107,12 @@ input[type="url"] {
 	width: 500px;
 }
 
-/* input[type="text"]:focus, */
-/* input[type="text"]:hover { */
-/* 	box-shadow: 1px 1px 1px black; */
-/* } */
+input[type="text"]:focus,
+input[type="text"]:hover,
+input[type="url"]:focus,
+input[type="url"]:hover {
+	outline: 2px solid black;
+}
 
 .text-action-btn {
 	background-color: pink;
@@ -204,7 +211,9 @@ tbody {
 }
 
 tbody {
-	display: grid;
+	display: flex;
+	flex-direction: column;
+	flex: 1;
 	overflow-y: auto;
 	gap: 1rem;
 }
@@ -215,9 +224,16 @@ thead {
 	background-color: antiquewhite;
 }
 
+td,
 tr {
-	flex: 1;
 	display: flex;
+}
+
+td {
+	width: 100%;
+}
+
+tr {
 	justify-content: center;
 	border: 1px solid;
 }
@@ -245,7 +261,6 @@ input[type=checkbox]:checked {
 	display: flex;
 	flex-direction: column;
 	gap: 1rem;
-	max-width: 40rem;
 	text-align: center;
 	height: 100%;
 }
@@ -256,24 +271,65 @@ input[type=checkbox]:checked {
 
 }
 
-#toast {
-	/* display: none; */
-	opacity: 0;
+#toast-container {
+	display: none;
+	flex-direction: column;
+	gap: 1rem;
 	position: absolute;
 	z-index: 100;
-	/* transform: translate(-50%, -50%); */
-	margin: 0 auto;
-	background-color: indianred;
-	font-size: 2rem;
-	padding: 1rem 5rem;
-	transition: opacity 2s ease-out;
-	bottom: 20;
-	right: 20;
+	font-size: 1rem;
+	bottom: 5%;
+	right: 5%;
 }
 
-#toast.htmx-settling {
-	opacity: 100;
-	/* display: block; */
+.toast {
+	padding: 1rem 3rem;
+	box-shadow: 0.3rem 0.3rem;
+	border: 3px solid;
+	background-color: whitesmoke;
+}
+
+.failure h3 {
+	color: red;
+}
+
+.success h3 {
+	color: green;
+}
+
+@keyframes slideIn {
+	from {
+		transform: translateX(10%);
+		opacity: 0;
+	}
+
+	to {
+		transform: translateX(0);
+		opacity: 1;
+	}
+}
+
+@keyframes slideOut {
+	from {
+		transform: translateX(0);
+		opacity: 1;
+	}
+
+	to {
+		transform: translateX(10%);
+		opacity: 0;
+	}
+}
+
+#toast-container.show.removing {
+	animation: slideOut 0.3s ease-in forwards;
+}
+
+#toast-container.show {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+	animation: slideIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
 .pagination {

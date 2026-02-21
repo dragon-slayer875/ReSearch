@@ -13,6 +13,7 @@ templ base(title string) {
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			<title>{ title }</title>
 			<script src="/js/htmx.min.js"></script>
+			<script src="/js/htmx-classes.js"></script>
 			<script defer src="/js/alpine.min.js"></script>
 			<script>
 		htmx.logAll();
@@ -64,55 +65,51 @@ templ index() {
 
 templ searchResults(data *utils.ResultsPageData) {
 	@mainContainer() {
-		<div style="flex: 1;">
-			if len(*data.SearchResults) == 0 {
-				<div
-					style="flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2rem;"
-				>
-					<span>
-						Sorry nothing found for <b>{ data.Query }</b>.
-					</span>
-					<span>
-						Show results for
-						<a href={ fmt.Sprintf("?query=%s", url.QueryEscape(data.Suggestion)) }>
-							<b id="suggestion">
-								{ data.Suggestion }
-							</b>
-						</a> instead?
-					</span>
-					<span>
-						Or you can try adding resources to our crawlerboard
-					</span>
-				</div>
-			} else {
-				<div style="flex: 1; justify-content: space-around; display: flex;">
-					<div style="max-width: 40rem;">
-						if data.Suggestion != "" {
-							<div style="display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 1.5rem;">
-								<span>
-									Showing results for <b>{ data.Query }</b>.
-								</span>
-								<span>
-									Show results for
-									<a href={ fmt.Sprintf("?query=%s", url.QueryEscape(data.Suggestion)) }>
-										<b id="suggestion">
-											{ 
-							data.Suggestion }
-										</b>
-									</a> instead?
-								</span>
-							</div>
-						}
-						<div style="display: flex; flex-direction:column; gap: 2rem;">
-							for _, result := range *data.SearchResults {
-								@searchResult(result)
-							}
+		if len(*data.SearchResults) == 0 {
+			<div style="display: flex; flex-direction: column; justify-content: center; gap: 1.5rem;">
+				<span>
+					Sorry nothing found for <b>{ data.Query }</b>.
+				</span>
+				<span>
+					Show results for
+					<a href={ fmt.Sprintf("?query=%s", url.QueryEscape(data.Suggestion)) }>
+						<b id="suggestion">
+							{ data.Suggestion }
+						</b>
+					</a> instead?
+				</span>
+				<span>
+					Or you can try adding resources to our crawlerboard
+				</span>
+			</div>
+		} else {
+			<div style="display: flex;">
+				<div style="max-width: 40rem;">
+					if data.Suggestion != "" {
+						<div style="display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 1.5rem;">
+							<span>
+								Showing results for <b>{ data.Query }</b>.
+							</span>
+							<span>
+								Show results for
+								<a href={ fmt.Sprintf("?query=%s", url.QueryEscape(data.Suggestion)) }>
+									<b id="suggestion">
+										{ 
+						data.Suggestion }
+									</b>
+								</a> instead?
+							</span>
 						</div>
-						@pagination(data.Query, data.TotalPages, data.CurrentPage)
+					}
+					<div style="display: flex; flex-direction:column; gap: 2rem;">
+						for _, result := range *data.SearchResults {
+							@searchResult(result)
+						}
 					</div>
+					@pagination(data.Query, data.TotalPages, data.CurrentPage)
 				</div>
-			}
-		</div>
+			</div>
+		}
 	}
 }
 
@@ -160,74 +157,116 @@ templ cralwerboardUrlAddForm() {
 
 templ crawlerboard(submissions *[]string) {
 	@mainContainer() {
-		<div style="display: flex; flex: 1; justify-content: space-around; align-items: center;">
-			<div id="crawlerboard-container">
-				<form
-					id="crawlerboard-content-form"
-					x-data={ fmt.Sprintf("{ selected: [], entries: %d }", len(*submissions)) }
-					style="flex: 1; display: flex; flex-direction: column; gap: 1rem; max-height: 75svh;"
-				>
-					<span style="flex: 1; margin-top: 2rem;" x-show="entries ? false:true" id="crawlerboard-no-item-msg">
-						Sorry nothing to show. Try adding some resources.
-					</span>
-					<table x-show="entries">
-						<thead class="box info tool-bar">
-							<tr>
-								<th style="flex: 1; padding:1rem">
-									<slot x-text="selected.length"></slot>
-									urls selected
-								</th>
-							</tr>
-						</thead>
-						@CrawlerboardEntries(submissions)
-					</table>
-					<output id="toast"></output>
-					<div style="display: flex; width: 100%;  gap: 1rem;">
-						<button
-							class="crawlerboard-action-btn"
-							style="background-color: #48CB57;"
-							type="button"
-							:disabled=" selected.length ? false : true"
-							:class=" selected.length ? '': 'disabled'"
-							hx-confirm="Accept selected urls?"
-							hx-post="/crawlerboard/accept"
-							hx-target="tbody"
-							hx-swap="outerHTML"
-						>
-							Accept
-						</button>
-						<button
-							class="crawlerboard-action-btn"
-							style="background-color: #F97777;"
-							type="button"
-							:disabled=" selected.length ? false:true"
-							:class=" selected.length ? '': 'disabled'"
-							hx-confirm="Reject selected urls?"
-							hx-delete="/crawlerboard"
-							hx-target="tbody"
-							hx-swap="outerHTML"
-						>
-							Reject
-						</button>
-					</div>
-				</form>
-				@cralwerboardUrlAddForm()
-			</div>
+		<div style="display: flex; flex: 1; justify-content: space-around;  max-width: 40rem;">
+			<form
+				id="crawlerboard-content-form"
+				x-data={ fmt.Sprintf("{ selected: [], entries: %d }", len(*submissions)) }
+				style="flex: 1; display: flex; flex-direction: column; gap: 1rem; max-height: 75svh;"
+			>
+				<span style="flex: 1; margin-top: 2rem;" x-show="entries ? false:true" id="crawlerboard-no-item-msg">
+					Sorry nothing to show. Try adding some resources.
+				</span>
+				<table x-show="entries">
+					<thead class="box info tool-bar">
+						<tr>
+							<th style="flex: 1; display: flex;">
+								<label style="display: flex; gap: 1rem; padding: 1rem 2rem;  align-items: center;">
+									<input type="checkbox" name="selected-urls"/>
+									<span>
+										<slot x-text="selected.length"></slot>
+										urls selected
+									</span>
+								</label>
+							</th>
+						</tr>
+					</thead>
+					@CrawlerboardEntries(submissions)
+					<tfoot>
+						<tr>
+							<td style="padding: 1rem; align-items: center; justify-content: space-between;">
+								<form action="/crawlerboard" method="get">
+									<div style="display: flex; gap: 1rem;">
+										<label>
+											<span>Size</span>
+											<select name="limit">
+												<option value="10">10</option>
+												<option value="20">20</option>
+												<option value="50">50</option>
+											</select>
+										</label>
+										<label>
+											<span>Order</span>
+											<select name="order">
+												<option value="dsc">Newest</option>
+												<option value="asc">Oldest</option>
+											</select>
+										</label>
+									</div>
+									<button>
+										Refresh
+									</button>
+								</form>
+							</td>
+						</tr>
+					</tfoot>
+				</table>
+				<div style="display: flex; width: 100%;  gap: 1rem;">
+					<button
+						class="crawlerboard-action-btn"
+						style="background-color: #48CB57;"
+						type="button"
+						:disabled=" selected.length ? false : true"
+						:class=" selected.length ? '': 'disabled'"
+						hx-confirm="Accept selected urls?"
+						hx-post="/crawlerboard/accept"
+						hx-target="tbody"
+						hx-swap="outerHTML"
+					>
+						Accept
+					</button>
+					<button
+						class="crawlerboard-action-btn"
+						style="background-color: #F97777;"
+						type="button"
+						:disabled=" selected.length ? false:true"
+						:class=" selected.length ? '': 'disabled'"
+						hx-confirm="Reject selected urls?"
+						hx-delete="/crawlerboard"
+						hx-target="tbody"
+						hx-swap="outerHTML"
+					>
+						Reject
+					</button>
+				</div>
+				<output id="toast-container">Test</output>
+			</form>
 		</div>
 	}
 }
 
+templ Notify(notifcations *utils.Notifications) {
+	<output id="toast-container" hx-swap-oob="true">
+		<div hx-ext="class-tools" apply-parent-classes="add show, add removing:4s, remove show:1s, remove removing"></div>
+		if notifcations.Success != "" {
+			<div class="toast success">
+				<h3>Success</h3>
+				{ notifcations.Success }
+			</div>
+		}
+		for message, submissions := range notifcations.Failure {
+			<div class="toast failure">
+				<h3>Error</h3>
+				{ message }: { submissions }
+			</div>
+		}
+	</output>
+}
+
 templ CrawlerboardEntry(submission string) {
 	<tr>
-		<td style="flex: 1; padding: 0; display: flex; justify-content: space-between; align-items: center;">
+		<td style="justify-content: space-between; align-items: center;">
 			<label style="display: flex; gap: 1rem; padding: 1rem;  flex: 1; align-items: center;">
-				<input
-					type="checkbox"
-					name="selected-urls"
-					value={ submission }
-					x-model="selected"
-					x-on:change="$el.parentNode.parentNode.parentNode.classList.toggle('selected')"
-				/>
+				<input type="checkbox" name="selected-urls" value={ submission } x-model="selected"/>
 				<span>
 					{ submission }
 				</span>
@@ -244,6 +283,7 @@ templ CrawlerboardEntries(submissions *[]string) {
 		@htmx:after-settle="entries = $el.querySelectorAll('tr').length - 1; selected = []"
 		x-ref="crawlerboard_content"
 		id="crawlerboard-content"
+		style="padding: 1rem; border: 1px solid;"
 	>
 		for _, submission := range *submissions {
 			@CrawlerboardEntry(submission)

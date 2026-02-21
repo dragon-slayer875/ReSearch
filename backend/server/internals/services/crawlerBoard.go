@@ -7,7 +7,14 @@ import (
 	"server/internals/utils"
 	"time"
 
+	"github.com/gofiber/fiber/v3/log"
 	redisLib "github.com/redis/go-redis/v9"
+)
+
+const (
+	urlsUnsupported = "Unsupported or malformed urls"
+	urlsExist       = "Urls already exist"
+	urlsAddErr      = "Error occured while adding url"
 )
 
 type CrawlerBoardService struct {
@@ -33,29 +40,60 @@ func (cb *CrawlerBoardService) GetSubmissions(ctx context.Context, order string,
 	return &results, err
 }
 
-func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions []string) ([]string, error) {
-	sortedSetMembers := make([]redisLib.Z, 0, len(submissions))
-	successfulSubmissions := make([]string, 0, len(submissions))
+func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions *[]string) (*[]string, *map[string][]string, error) {
+	sortedSetMembers := make(map[string]redisLib.Z, len(*submissions))
+	failureSubmissionMap := make(map[string][]string, 3)
 
 	pipe := cb.redisClient.TxPipeline()
 
-	for _, submission := range submissions {
-		normalizedUrl, allowed, _ := utils.NormalizeURL("", submission)
+	for _, submission := range *submissions {
+		normalizedUrl, allowed, err := utils.NormalizeURL("", submission)
 		if !allowed {
+			if err != nil {
+				log.Debug(err)
+			}
+			failureSubmissionMap[urlsUnsupported] = append(failureSubmissionMap[urlsUnsupported], submission)
+
+		} else {
+			sortedSetMembers[submission] = redisLib.Z{
+				Member: normalizedUrl,
+				Score:  float64(time.Now().Unix()),
+			}
+		}
+	}
+
+	if len(sortedSetMembers) == 0 {
+		return &[]string{}, &failureSubmissionMap, nil
+	}
+
+	addCmds := make(map[*redisLib.IntCmd]string, len(sortedSetMembers))
+
+	successfulSubmissions := make([]string, 0, len(sortedSetMembers))
+
+	for submission, sortedSetMember := range sortedSetMembers {
+		addCmds[pipe.ZAddNX(ctx, redis.CrawlerboardKey, sortedSetMember)] = submission
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for addCmd, submission := range addCmds {
+		val, err := addCmd.Result()
+		if err != nil {
+			failureSubmissionMap[urlsAddErr] = append(failureSubmissionMap[urlsAddErr], submission)
 			continue
 		}
 
-		sortedSetMembers = append(sortedSetMembers, redisLib.Z{
-			Member: normalizedUrl,
-			Score:  float64(time.Now().Unix()),
-		})
-		successfulSubmissions = append(successfulSubmissions, normalizedUrl)
+		if val == 0 {
+			failureSubmissionMap[urlsExist] = append(failureSubmissionMap[urlsExist], submission)
+		} else {
+			successfulSubmissions = append(successfulSubmissions, submission)
+		}
 	}
 
-	pipe.ZAddNX(ctx, redis.CrawlerboardKey, sortedSetMembers...)
-	_, err := pipe.Exec(ctx)
-
-	return successfulSubmissions, err
+	return &successfulSubmissions, &failureSubmissionMap, nil
 }
 
 func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submissions []string) (int, error) {

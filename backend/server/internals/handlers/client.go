@@ -4,6 +4,7 @@ import (
 	"server/internals/services"
 	"server/internals/templates"
 	"server/internals/utils"
+	"strings"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/log"
@@ -78,23 +79,52 @@ func GetCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler {
 
 func AddUrlToCrawlerboard(service *services.CrawlerBoardService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		var req submissionGetRequest
+		// var req submissionGetRequest
+		//
+		// if err := c.Bind().Query(&req); err != nil {
+		// 	return fiber.NewError(fiber.StatusBadRequest)
+		// }
+		//
+		submissions := strings.Split(c.FormValue("submission"), ",")
 
-		if err := c.Bind().Query(&req); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest)
-		}
-
-		submission := c.FormValue("submission")
-
-		_, err := service.AddSubmissions(c.Context(), []string{submission})
+		successful, failed, err := service.AddSubmissions(c.Context(), &submissions)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
-		c.Status(fiber.StatusCreated)
+		notifications := new(utils.Notifications)
+		notifications.Failure = map[string]string{}
 
-		return utils.Render(c, templates.CrawlerboardEntry(submission))
+		if len(*successful) != 0 {
+			notifications.Success = "Urls added: " + strings.Join(*successful, ", ")
+			c.Status(fiber.StatusCreated)
+		} else if len(*successful) != 0 && len(*failed) != 0 {
+			c.Status(fiber.StatusMultiStatus)
+		} else {
+			// c.Status(fiber.StatusBadRequest)
+		}
+
+		for error, output := range *failed {
+			notifications.Failure[error] = strings.Join(output, ", ")
+		}
+
+		for _, submission := range *successful {
+			err := utils.Render(c, templates.CrawlerboardEntry(submission))
+			if err != nil {
+				log.Error(err)
+				return fiber.NewError(fiber.StatusInternalServerError)
+			}
+		}
+
+		err = utils.Render(c, templates.Notify(notifications))
+		if err != nil {
+			log.Error(err)
+			return fiber.NewError(fiber.StatusInternalServerError)
+		}
+
+		return nil
+
 	}
 
 }

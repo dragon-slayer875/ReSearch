@@ -35,8 +35,14 @@ templ ResultsPage(data *utils.ResultsPageData) {
 templ Crawlerboard(submissions *[]string) {
 	@base("Crawlerboard - reSearch") {
 		@header() {
-			<div style="display: flex; width: 100%; justify-content: space-between;gap: 1rem;">
-				<a class="logo" href="/">
+			<div style="width: 100%; display:flex; gap: 2rem;">
+				<a id="header-logo" class="logo" href="/">
+					<h1>rS</h1>
+				</a>
+				@cralwerboardUrlAddForm()
+			</div>
+			<div id="header-actions">
+				<a id="header-logo-mobile" class="logo" href="/">
 					<h1>rS</h1>
 				</a>
 				<h1 style="font-weight: 300;">Crawlerboard</h1>

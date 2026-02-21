@@ -185,7 +185,15 @@ func Crawlerboard(submissions *[]string) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div style=\"display: flex; width: 100%; justify-content: space-between;gap: 1rem;\"><a class=\"logo\" href=\"/\"><h1>rS</h1></a><h1 style=\"font-weight: 300;\">Crawlerboard</h1></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<div style=\"width: 100%; display:flex; gap: 2rem;\"><a id=\"header-logo\" class=\"logo\" href=\"/\"><h1>rS</h1></a>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = cralwerboardUrlAddForm().Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div><div id=\"header-actions\"><a id=\"header-logo-mobile\" class=\"logo\" href=\"/\"><h1>rS</h1></a><h1 style=\"font-weight: 300;\">Crawlerboard</h1></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -195,7 +203,7 @@ func Crawlerboard(submissions *[]string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
