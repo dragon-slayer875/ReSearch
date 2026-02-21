@@ -183,13 +183,35 @@ func AcceptCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
-		_, err := service.AcceptSubmissions(c.Context(), formData["selected-urls"])
+		submissionsToAccept := formData["selected-urls"]
+
+		submissions, successful, failed, err := service.AcceptSubmissions(c.Context(), &submissionsToAccept, req.Order, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
-		c.Status(fiber.StatusNoContent)
-		return nil
+		notifications := new(utils.Notifications)
+		notifications.Failure = map[string]string{}
+
+		if successful != 0 {
+			notifications.Success = fmt.Sprintln(successful, "urls rejected")
+		} else if successful != 0 && len(*failed) != 0 {
+			c.Status(fiber.StatusMultiStatus)
+		} else {
+			// c.Status(fiber.StatusBadRequest)
+		}
+
+		for error, output := range *failed {
+			notifications.Failure[error] = strings.Join(output, ", ")
+		}
+
+		err = utils.Render(c, templates.CrawlerboardEntries(submissions))
+		if err != nil {
+			log.Error(err)
+			return fiber.NewError(fiber.StatusInternalServerError)
+		}
+
+		return utils.Render(c, templates.Notify(notifications))
 	}
 }
