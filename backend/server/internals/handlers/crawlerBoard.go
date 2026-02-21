@@ -78,18 +78,26 @@ func AcceptSubmissions(service *services.CrawlerBoardService) fiber.Handler {
 func RejectSubmissions(service *services.CrawlerBoardService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		var body submissionPostRequest
+		var req submissionGetRequest
+
+		if err := c.Bind().Query(&req); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
 
 		if err := c.Bind().Body(&body); err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 
-		rejectedSubmissions, err := service.RejectSubmissions(c.Context(), body.Submissions)
+		_, successful, failed, err := service.RejectAndGetSubmissions(c.Context(), &body.Submissions, req.Order, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
-		return c.JSON(rejectedSubmissions)
+		return c.JSON(map[string]any{
+			"successful": *successful,
+			"failed":     failed,
+		})
 	}
 }

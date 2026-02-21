@@ -34,15 +34,17 @@ button {
 	justify-content: center;
 	align-items: center;
 	padding: 0.5rem 1rem;
-	border: 0;
+	border: 1px solid black;
 	cursor: pointer;
 	transition: box-shadow 0.5s;
 }
 
+
+button:active,
 button:hover,
 button:focus {
 	outline: 0;
-	box-shadow: 0.3rem 0.3rem black;
+	box-shadow: 0.1rem 0.1rem black;
 }
 
 .header {
@@ -256,6 +258,21 @@ input[type=checkbox]:checked {
 	background: url("data:image/gif;base64,R0lGODlhCwAKAIABAP////3cnSH5BAEKAAEALAAAAAALAAoAAAIUjH+AC73WHIsw0UCjglraO20PNhYAOw==") 2px 3px no-repeat;
 }
 
+select {
+	background-color: pink;
+	padding: 0.5rem 1rem;
+	border: 1px solid black;
+	transition: box-shadow 0.5s;
+}
+
+select:focus,
+select:active,
+select:hover {
+	cursor: pointer;
+	outline: none;
+	box-shadow: 0.1rem 0.1rem black;
+}
+
 #crawlerboard-container {
 	flex: 1;
 	display: flex;
@@ -423,6 +440,7 @@ input[type=checkbox]:checked {
 
 .disabled {
 	background-color: lightgray !important;
+	box-shadow: 0 0;
 }
 
 .disabled:hover,

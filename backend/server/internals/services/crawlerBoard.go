@@ -11,12 +11,6 @@ import (
 	redisLib "github.com/redis/go-redis/v9"
 )
 
-const (
-	urlsUnsupported = "Unsupported or malformed urls"
-	urlsExist       = "Urls already exist"
-	urlsAddErr      = "Error occured while adding url"
-)
-
 type CrawlerBoardService struct {
 	redisClient *redisLib.Client
 }
@@ -46,13 +40,15 @@ func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions *
 
 	pipe := cb.redisClient.TxPipeline()
 
+	unsupportedSubmissions := make([]string, 0, len(*submissions))
+
 	for _, submission := range *submissions {
 		normalizedUrl, allowed, err := utils.NormalizeURL("", submission)
 		if !allowed {
 			if err != nil {
 				log.Debug(err)
 			}
-			failureSubmissionMap[urlsUnsupported] = append(failureSubmissionMap[urlsUnsupported], submission)
+			unsupportedSubmissions = append(unsupportedSubmissions, submission)
 
 		} else {
 			sortedSetMembers[submission] = redisLib.Z{
@@ -60,6 +56,10 @@ func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions *
 				Score:  float64(time.Now().Unix()),
 			}
 		}
+	}
+
+	if len(unsupportedSubmissions) != 0 {
+		failureSubmissionMap["Unsupported/malformed urls"] = unsupportedSubmissions
 	}
 
 	if len(sortedSetMembers) == 0 {
@@ -79,18 +79,29 @@ func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions *
 		return nil, nil, err
 	}
 
+	erroredSubmissions := make([]string, 0, len(sortedSetMembers))
+	duplicateSubmissions := make([]string, 0, len(sortedSetMembers))
+
 	for addCmd, submission := range addCmds {
 		val, err := addCmd.Result()
 		if err != nil {
-			failureSubmissionMap[urlsAddErr] = append(failureSubmissionMap[urlsAddErr], submission)
+			erroredSubmissions = append(erroredSubmissions, submission)
 			continue
 		}
 
 		if val == 0 {
-			failureSubmissionMap[urlsExist] = append(failureSubmissionMap[urlsExist], submission)
+			duplicateSubmissions = append(duplicateSubmissions, submission)
 		} else {
 			successfulSubmissions = append(successfulSubmissions, submission)
 		}
+	}
+
+	if len(duplicateSubmissions) != 0 {
+		failureSubmissionMap["Urls already exist"] = duplicateSubmissions
+	}
+
+	if len(erroredSubmissions) != 0 {
+		failureSubmissionMap["Error occured while adding urls"] = erroredSubmissions
 	}
 
 	return &successfulSubmissions, &failureSubmissionMap, nil
@@ -147,29 +158,52 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 	return successfulSubs, err
 }
 
-func (cb *CrawlerBoardService) RejectSubmissions(ctx context.Context, submissions []string) (int64, error) {
-	transformedSubmissions := utils.ToAnySlice(submissions)
-	return cb.redisClient.ZRem(ctx, redis.CrawlerboardKey, transformedSubmissions...).Result()
-}
+func (cb *CrawlerBoardService) RejectAndGetSubmissions(ctx context.Context, submissionsToReject *[]string, order string, page, limit int) (*[]string, *[]string, *map[string][]string, error) {
+	successfulRejections := make([]string, 0, len(*submissionsToReject))
+	failureSubmissionMap := make(map[string][]string, 2)
 
-func (cb *CrawlerBoardService) RejectAndGetSubmissions(ctx context.Context, submissionsToReject []string, order string, page, limit int) (*[]string, error) {
+	remCmds := make([]*redisLib.IntCmd, len(*submissionsToReject))
 	pipe := cb.redisClient.TxPipeline()
-	transformedSubmissions := utils.ToAnySlice(submissionsToReject)
-	pipe.ZRem(ctx, redis.CrawlerboardKey, transformedSubmissions...)
 
-	getCmd := new(redisLib.StringSliceCmd)
+	for idx, submission := range *submissionsToReject {
+		remCmds[idx] = pipe.ZRem(ctx, redis.CrawlerboardKey, submission)
+	}
 
+	getCmd := pipe.ZRevRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page))
 	if order == "asc" {
 		getCmd = pipe.ZRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page))
-	} else {
-		getCmd = pipe.ZRevRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page))
 	}
 
 	_, err := pipe.Exec(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
+	}
+
+	erroredRejections := make([]string, 0, len(*submissionsToReject))
+	notFoundRejections := make([]string, 0, len(*submissionsToReject))
+
+	for idx, cmd := range remCmds {
+		val, err := cmd.Result()
+		if err != nil {
+			erroredRejections = append(erroredRejections, (*submissionsToReject)[idx])
+			continue
+		}
+
+		if val == 0 {
+			notFoundRejections = append(notFoundRejections, (*submissionsToReject)[idx])
+		} else {
+			successfulRejections = append(successfulRejections, (*submissionsToReject)[idx])
+		}
+	}
+
+	if len(notFoundRejections) != 0 {
+		failureSubmissionMap["Urls not found"] = notFoundRejections
+	}
+
+	if len(erroredRejections) != 0 {
+		failureSubmissionMap["Error occured while rejecting urls"] = erroredRejections
 	}
 
 	submissions, err := getCmd.Result()
-	return &submissions, err
+	return &submissions, &successfulRejections, &failureSubmissionMap, err
 }

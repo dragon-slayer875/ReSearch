@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"server/internals/services"
 	"server/internals/templates"
 	"server/internals/utils"
@@ -117,13 +118,7 @@ func AddUrlToCrawlerboard(service *services.CrawlerBoardService) fiber.Handler {
 			}
 		}
 
-		err = utils.Render(c, templates.Notify(notifications))
-		if err != nil {
-			log.Error(err)
-			return fiber.NewError(fiber.StatusInternalServerError)
-		}
-
-		return nil
+		return utils.Render(c, templates.Notify(notifications))
 
 	}
 
@@ -142,14 +137,36 @@ func RejectCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
-		submissions, err := service.RejectAndGetSubmissions(c.Context(), formData["selected-urls"], req.Order, req.Page, req.Limit)
+		submissionsToReject := formData["selected-urls"]
+
+		submissions, successful, failed, err := service.RejectAndGetSubmissions(c.Context(), &submissionsToReject, req.Order, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
-		c.Status(fiber.StatusOK)
-		return utils.Render(c, templates.CrawlerboardEntries(submissions))
+		notifications := new(utils.Notifications)
+		notifications.Failure = map[string]string{}
+
+		if len(*successful) != 0 {
+			notifications.Success = fmt.Sprintln(len(*successful), "urls rejected")
+		} else if len(*successful) != 0 && len(*failed) != 0 {
+			c.Status(fiber.StatusMultiStatus)
+		} else {
+			// c.Status(fiber.StatusBadRequest)
+		}
+
+		for error, output := range *failed {
+			notifications.Failure[error] = strings.Join(output, ", ")
+		}
+
+		err = utils.Render(c, templates.CrawlerboardEntries(submissions))
+		if err != nil {
+			log.Error(err)
+			return fiber.NewError(fiber.StatusInternalServerError)
+		}
+
+		return utils.Render(c, templates.Notify(notifications))
 	}
 }
 
