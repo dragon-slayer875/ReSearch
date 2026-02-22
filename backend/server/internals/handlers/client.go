@@ -17,6 +17,33 @@ func ServeIndex() fiber.Handler {
 	}
 }
 
+func ServeAdmin() fiber.Handler {
+	return func(c fiber.Ctx) error {
+		return utils.Render(c, templates.AdminPage())
+	}
+}
+
+func VerifyAdmin() fiber.Handler {
+	return func(c fiber.Ctx) error {
+		admin := (c.Value("auth")).(bool)
+
+		if admin {
+			c.Cookie(&fiber.Cookie{
+				Name:     "rs_key",
+				Value:    c.FormValue("rs_key"),
+				SameSite: "Lax",
+				HTTPOnly: true,
+				Secure:   true,
+			})
+
+			return c.Redirect().To("/crawlerboard")
+		}
+
+		c.Status(fiber.StatusUnauthorized)
+		return c.SendString("Missing or invalid admin key")
+	}
+}
+
 func ServeResults(service *services.SearchService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		req := new(utils.SearchGetRequest)
@@ -74,7 +101,7 @@ func GetCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler {
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
-		return utils.Render(c, templates.Crawlerboard(submissions))
+		return utils.Render(c, templates.Crawlerboard(submissions, (c.Value("auth")).(bool)))
 	}
 }
 
@@ -111,7 +138,7 @@ func AddUrlToCrawlerboard(service *services.CrawlerBoardService) fiber.Handler {
 		}
 
 		for _, submission := range *successful {
-			err := utils.Render(c, templates.CrawlerboardEntry(submission))
+			err := utils.Render(c, templates.CrawlerboardEntry(submission, (c.Value("auth")).(bool)))
 			if err != nil {
 				log.Error(err)
 				return fiber.NewError(fiber.StatusInternalServerError)
@@ -160,7 +187,7 @@ func RejectCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler
 			notifications.Failure[error] = strings.Join(output, ", ")
 		}
 
-		err = utils.Render(c, templates.CrawlerboardEntries(submissions))
+		err = utils.Render(c, templates.CrawlerboardEntries(submissions, (c.Value("auth")).(bool)))
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
@@ -206,7 +233,7 @@ func AcceptCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler
 			notifications.Failure[error] = strings.Join(output, ", ")
 		}
 
-		err = utils.Render(c, templates.CrawlerboardEntries(submissions))
+		err = utils.Render(c, templates.CrawlerboardEntries(submissions, (c.Value("auth")).(bool)))
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)

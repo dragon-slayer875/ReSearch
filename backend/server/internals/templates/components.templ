@@ -155,7 +155,7 @@ templ cralwerboardUrlAddForm() {
 	</form>
 }
 
-templ crawlerboard(submissions *[]string) {
+templ crawlerboard(submissions *[]string, admin bool) {
 	@mainContainer() {
 		<div style="display: flex; flex: 1; justify-content: space-around;  max-width: 40rem;">
 			<form
@@ -167,20 +167,22 @@ templ crawlerboard(submissions *[]string) {
 					Sorry nothing to show. Try adding some resources.
 				</span>
 				<table x-show="entries">
-					<thead class="box info tool-bar">
-						<tr>
-							<th style="flex: 1; display: flex;">
-								<label style="display: flex; gap: 1rem; padding: 1rem 2rem;  align-items: center;">
-									<input type="checkbox" name="selected-urls"/>
-									<span>
-										<slot x-text="selected.length"></slot>
-										urls selected
-									</span>
-								</label>
-							</th>
-						</tr>
-					</thead>
-					@CrawlerboardEntries(submissions)
+					if admin {
+						<thead class="box info tool-bar">
+							<tr>
+								<th style="flex: 1; display: flex;">
+									<label style="display: flex; gap: 1rem; padding: 1rem 2rem;  align-items: center;">
+										<input type="checkbox" name="selected-urls"/>
+										<span>
+											<slot x-text="selected.length"></slot>
+											urls selected
+										</span>
+									</label>
+								</th>
+							</tr>
+						</thead>
+					}
+					@CrawlerboardEntries(submissions, admin)
 					<tfoot>
 						<tr>
 							<td style="padding: 1rem; align-items: center; justify-content: space-between;">
@@ -210,34 +212,36 @@ templ crawlerboard(submissions *[]string) {
 						</tr>
 					</tfoot>
 				</table>
-				<div style="display: flex; width: 100%;  gap: 1rem;">
-					<button
-						class="crawlerboard-action-btn"
-						style="background-color: #48CB57;"
-						type="button"
-						:disabled=" selected.length ? false : true"
-						:class=" selected.length ? '': 'disabled'"
-						hx-confirm="Accept selected urls?"
-						hx-post="/crawlerboard/accept"
-						hx-target="tbody"
-						hx-swap="outerHTML"
-					>
-						Accept
-					</button>
-					<button
-						class="crawlerboard-action-btn"
-						style="background-color: #F97777;"
-						type="button"
-						:disabled=" selected.length ? false:true"
-						:class=" selected.length ? '': 'disabled'"
-						hx-confirm="Reject selected urls?"
-						hx-delete="/crawlerboard"
-						hx-target="tbody"
-						hx-swap="outerHTML"
-					>
-						Reject
-					</button>
-				</div>
+				if admin {
+					<div style="display: flex; width: 100%;  gap: 1rem;">
+						<button
+							class="crawlerboard-action-btn"
+							style="background-color: #48CB57;"
+							type="button"
+							:disabled=" selected.length ? false : true"
+							:class=" selected.length ? '': 'disabled'"
+							hx-confirm="Accept selected urls?"
+							hx-post="/crawlerboard/accept"
+							hx-target="tbody"
+							hx-swap="outerHTML"
+						>
+							Accept
+						</button>
+						<button
+							class="crawlerboard-action-btn"
+							style="background-color: #F97777;"
+							type="button"
+							:disabled=" selected.length ? false:true"
+							:class=" selected.length ? '': 'disabled'"
+							hx-confirm="Reject selected urls?"
+							hx-delete="/crawlerboard"
+							hx-target="tbody"
+							hx-swap="outerHTML"
+						>
+							Reject
+						</button>
+					</div>
+				}
 				<output id="toast-container">Test</output>
 			</form>
 		</div>
@@ -262,11 +266,13 @@ templ Notify(notifcations *utils.Notifications) {
 	</output>
 }
 
-templ CrawlerboardEntry(submission string) {
+templ CrawlerboardEntry(submission string, admin bool) {
 	<tr>
 		<td style="justify-content: space-between; align-items: center;">
 			<label style="display: flex; gap: 1rem; padding: 1rem;  flex: 1; align-items: center;">
-				<input type="checkbox" name="selected-urls" value={ submission } x-model="selected"/>
+				if admin {
+					<input type="checkbox" name="selected-urls" value={ submission } x-model="selected"/>
+				}
 				<span>
 					{ submission }
 				</span>
@@ -278,7 +284,7 @@ templ CrawlerboardEntry(submission string) {
 	</tr>
 }
 
-templ CrawlerboardEntries(submissions *[]string) {
+templ CrawlerboardEntries(submissions *[]string, admin bool) {
 	<tbody
 		@htmx:after-settle="entries = $el.querySelectorAll('tr').length - 1; selected = []"
 		x-ref="crawlerboard_content"
@@ -286,7 +292,7 @@ templ CrawlerboardEntries(submissions *[]string) {
 		style="padding: 1rem; border: 1px solid;"
 	>
 		for _, submission := range *submissions {
-			@CrawlerboardEntry(submission)
+			@CrawlerboardEntry(submission, admin)
 		}
 		<tr style="display: none;"></tr>
 	</tbody>
@@ -326,5 +332,25 @@ templ externalLinkIcon() {
 		<path d="M15 3h6v6"></path>
 		<path d="M10 14 21 3"></path>
 		<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+	</svg>
+}
+
+templ keyIcon() {
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		width="24"
+		height="24"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="2"
+		stroke-linecap="round"
+		stroke-linejoin="round"
+		class="lucide lucide-key-round-icon lucide-key-round"
+	>
+		<path
+			d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"
+		></path>
+		<circle cx="16.5" cy="7.5" r=".5" fill="currentColor"></circle>
 	</svg>
 }

@@ -32,7 +32,44 @@ templ ResultsPage(data *utils.ResultsPageData) {
 	}
 }
 
-templ Crawlerboard(submissions *[]string) {
+templ AdminPage() {
+	@base("Admin - reSearch") {
+		@header() {
+			<div style="width: 100%; display:flex; gap: 2rem;">
+				<a id="header-logo" class="logo" href="/">
+					<h1>rS</h1>
+				</a>
+			</div>
+			<div id="header-actions">
+				<a id="header-logo-mobile" class="logo" href="/">
+					<h1>rS</h1>
+				</a>
+				<h1 style="font-weight: 300;">Admin</h1>
+			</div>
+		}
+		@mainContainer() {
+			<div style="display: flex; flex-direction:column; justify-content: center; align-items: center; flex: 1; gap: 1rem;">
+				<label for="key-input">
+					<h1
+						style="
+	font-weight: 300;
+			"
+					>
+						Admin key
+					</h1>
+				</label>
+				<form class="text-action-form" action="/admin" method="post">
+					<input type="password" id="key-input" name="rs_key" autofocus/>
+					<button type="submit" class="text-action-btn">
+						Verify
+					</button>
+				</form>
+			</div>
+		}
+	}
+}
+
+templ Crawlerboard(submissions *[]string, admin bool) {
 	@base("Crawlerboard - reSearch") {
 		@header() {
 			<div style="width: 100%; display:flex; gap: 2rem;">
@@ -48,6 +85,6 @@ templ Crawlerboard(submissions *[]string) {
 				<h1 style="font-weight: 300;">Crawlerboard</h1>
 			</div>
 		}
-		@crawlerboard(submissions)
+		@crawlerboard(submissions, admin)
 	}
 }

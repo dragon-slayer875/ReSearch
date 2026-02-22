@@ -101,7 +101,8 @@ button:focus {
 
 
 input[type="text"],
-input[type="url"] {
+input[type="url"],
+input[type="password"] {
 	flex: 1;
 	border: 0;
 	outline: 1px solid black;
@@ -112,7 +113,9 @@ input[type="url"] {
 input[type="text"]:focus,
 input[type="text"]:hover,
 input[type="url"]:focus,
-input[type="url"]:hover {
+input[type="url"]:hover,
+input[type="password"]:focus,
+input[type="password"]:hover {
 	outline: 2px solid black;
 }
 
@@ -385,7 +388,8 @@ select:hover {
 	}
 
 	input[type="text"],
-	input[type="url"] {
+	input[type="url"],
+	input[type="password"] {
 		width: 100%;
 	}
 
