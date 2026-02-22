@@ -15,6 +15,18 @@ templ base(title string) {
 			<script src="/js/htmx.min.js"></script>
 			<script src="/js/htmx-classes.js"></script>
 			<script defer src="/js/alpine.min.js"></script>
+			<meta
+				name="htmx-config"
+				content='{
+        "responseHandling":[
+            {"code":"204", "swap": false},
+            {"code":"[23]..", "swap": true},
+            {"code":"[4]..", "swap": true, "error":false},
+            {"code":"[5]..", "swap": false, "error":true},
+            {"code":"...", "swap": true}
+        ]
+    }'
+			/>
 			<script>
 		htmx.logAll();
 	</script>

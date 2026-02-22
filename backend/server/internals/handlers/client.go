@@ -107,12 +107,6 @@ func GetCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler {
 
 func AddUrlToCrawlerboard(service *services.CrawlerBoardService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		// var req submissionGetRequest
-		//
-		// if err := c.Bind().Query(&req); err != nil {
-		// 	return fiber.NewError(fiber.StatusBadRequest)
-		// }
-		//
 		submissions := strings.Split(c.FormValue("submission"), ",")
 
 		successful, failed, err := service.AddSubmissions(c.Context(), &submissions)
@@ -125,12 +119,14 @@ func AddUrlToCrawlerboard(service *services.CrawlerBoardService) fiber.Handler {
 		notifications.Failure = map[string]string{}
 
 		if len(*successful) != 0 {
-			notifications.Success = "Urls added: " + strings.Join(*successful, ", ")
+			notifications.Success = fmt.Sprintln(len(*successful), "url(s) added")
 			c.Status(fiber.StatusCreated)
-		} else if len(*successful) != 0 && len(*failed) != 0 {
-			c.Status(fiber.StatusMultiStatus)
+
+			if len(*failed) != 0 {
+				c.Status(fiber.StatusMultiStatus)
+			}
 		} else {
-			// c.Status(fiber.StatusBadRequest)
+			c.Status(fiber.StatusBadRequest)
 		}
 
 		for error, output := range *failed {
@@ -177,10 +173,12 @@ func RejectCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler
 
 		if len(*successful) != 0 {
 			notifications.Success = fmt.Sprintln(len(*successful), "urls rejected")
-		} else if len(*successful) != 0 && len(*failed) != 0 {
-			c.Status(fiber.StatusMultiStatus)
+
+			if len(*failed) != 0 {
+				c.Status(fiber.StatusMultiStatus)
+			}
 		} else {
-			// c.Status(fiber.StatusBadRequest)
+			c.Status(fiber.StatusBadRequest)
 		}
 
 		for error, output := range *failed {
@@ -222,11 +220,13 @@ func AcceptCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler
 		notifications.Failure = map[string]string{}
 
 		if successful != 0 {
-			notifications.Success = fmt.Sprintln(successful, "urls rejected")
-		} else if successful != 0 && len(*failed) != 0 {
-			c.Status(fiber.StatusMultiStatus)
+			notifications.Success = fmt.Sprintln(successful, "urls accepted")
+
+			if len(*failed) != 0 {
+				c.Status(fiber.StatusMultiStatus)
+			}
 		} else {
-			// c.Status(fiber.StatusBadRequest)
+			c.Status(fiber.StatusBadRequest)
 		}
 
 		for error, output := range *failed {
