@@ -185,7 +185,19 @@ templ crawlerboard(submissions *[]string, admin bool) {
 							<tr>
 								<th style="flex: 1; display: flex;">
 									<label style="display: flex; gap: 1rem; padding: 1rem 2rem;  align-items: center;">
-										<input type="checkbox" name="selected-urls"/>
+										<input
+											type="checkbox"
+											name="select-all-urls"
+											:checked="selected.length == $refs.crawlerboard_content.querySelectorAll('tr').length - 1"
+											@click="if (selected.length !== 0) { selected = [] } 
+											else {
+											$refs.crawlerboard_content.querySelectorAll('input[type=\'checkbox\']')
+											.forEach(cb=>{
+											cb.checked = true
+											selected.push(cb.value)
+											})
+											}"
+										/>
 										<span>
 											<slot x-text="selected.length"></slot>
 											urls selected
@@ -284,7 +296,7 @@ templ CrawlerboardEntry(submission string, admin bool) {
 		<td style="justify-content: space-between; align-items: center;">
 			<label style="display: flex; gap: 1rem; padding: 1rem;  flex: 1; align-items: center;">
 				if admin {
-					<input type="checkbox" name="selected-urls" value={ submission } x-model="selected"/>
+					<input type="checkbox" name="submissions" value={ submission } x-model="selected"/>
 				}
 				<span>
 					{ submission }

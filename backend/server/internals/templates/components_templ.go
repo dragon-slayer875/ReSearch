@@ -689,7 +689,7 @@ func crawlerboard(submissions *[]string, admin bool) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if admin {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "<thead class=\"box info tool-bar\"><tr><th style=\"flex: 1; display: flex;\"><label style=\"display: flex; gap: 1rem; padding: 1rem 2rem;  align-items: center;\"><input type=\"checkbox\" name=\"selected-urls\"> <span><slot x-text=\"selected.length\"></slot> urls selected</span></label></th></tr></thead>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "<thead class=\"box info tool-bar\"><tr><th style=\"flex: 1; display: flex;\"><label style=\"display: flex; gap: 1rem; padding: 1rem 2rem;  align-items: center;\"><input type=\"checkbox\" name=\"select-all-urls\" :checked=\"selected.length == $refs.crawlerboard_content.querySelectorAll('tr').length - 1\" @click=\"if (selected.length !== 0) { selected = [] } \n\t\t\t\t\t\t\t\t\t\t\telse {\n\t\t\t\t\t\t\t\t\t\t\t$refs.crawlerboard_content.querySelectorAll('input[type=\\'checkbox\\']')\n\t\t\t\t\t\t\t\t\t\t\t.forEach(cb=>{\n\t\t\t\t\t\t\t\t\t\t\tcb.checked = true\n\t\t\t\t\t\t\t\t\t\t\tselected.push(cb.value)\n\t\t\t\t\t\t\t\t\t\t\t})\n\t\t\t\t\t\t\t\t\t\t\t}\"> <span><slot x-text=\"selected.length\"></slot> urls selected</span></label></th></tr></thead>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -755,7 +755,7 @@ func Notify(notifcations *utils.Notifications) templ.Component {
 			var templ_7745c5c3_Var33 string
 			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(notifcations.Success)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internals/templates/components.templ`, Line: 270, Col: 26}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internals/templates/components.templ`, Line: 282, Col: 26}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 			if templ_7745c5c3_Err != nil {
@@ -774,7 +774,7 @@ func Notify(notifcations *utils.Notifications) templ.Component {
 			var templ_7745c5c3_Var34 string
 			templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(message)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internals/templates/components.templ`, Line: 276, Col: 13}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internals/templates/components.templ`, Line: 288, Col: 13}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 			if templ_7745c5c3_Err != nil {
@@ -787,7 +787,7 @@ func Notify(notifcations *utils.Notifications) templ.Component {
 			var templ_7745c5c3_Var35 string
 			templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(submissions)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internals/templates/components.templ`, Line: 276, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internals/templates/components.templ`, Line: 288, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 			if templ_7745c5c3_Err != nil {
@@ -832,14 +832,14 @@ func CrawlerboardEntry(submission string, admin bool) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if admin {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "<input type=\"checkbox\" name=\"selected-urls\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "<input type=\"checkbox\" name=\"submissions\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var37 string
 			templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(submission)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internals/templates/components.templ`, Line: 287, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internals/templates/components.templ`, Line: 299, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 			if templ_7745c5c3_Err != nil {
@@ -857,7 +857,7 @@ func CrawlerboardEntry(submission string, admin bool) templ.Component {
 		var templ_7745c5c3_Var38 string
 		templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(submission)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internals/templates/components.templ`, Line: 290, Col: 17}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internals/templates/components.templ`, Line: 302, Col: 17}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 		if templ_7745c5c3_Err != nil {
@@ -870,7 +870,7 @@ func CrawlerboardEntry(submission string, admin bool) templ.Component {
 		var templ_7745c5c3_Var39 templ.SafeURL
 		templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinURLErrs(submission)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internals/templates/components.templ`, Line: 293, Col: 23}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internals/templates/components.templ`, Line: 305, Col: 23}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 		if templ_7745c5c3_Err != nil {
