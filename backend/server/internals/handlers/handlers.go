@@ -24,7 +24,7 @@ type addRequest struct {
 }
 
 type acceptRejectRequest struct {
-	Submissions []string `json:"submissions" form:"submissions" validate:"required"`
+	Submissions []string `json:"submissions" form:"submissions" query:"submissions" validate:"required"`
 }
 
 type paginationParams struct {
@@ -206,9 +206,9 @@ func CrawlerboardAdd(service *services.CrawlerBoardService) fiber.Handler {
 func CrawlerboardReject(service *services.CrawlerBoardService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		var req paginationParams
-		var body acceptRejectRequest
+		var data acceptRejectRequest
 
-		if err := c.Bind().Body(&body); err != nil {
+		if err := c.Bind().All(&data); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
@@ -216,7 +216,7 @@ func CrawlerboardReject(service *services.CrawlerBoardService) fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
-		submissions, successful, failed, err := service.RejectAndGetSubmissions(c.Context(), &body.Submissions, req.Order, req.Page, req.Limit)
+		submissions, successful, failed, err := service.RejectAndGetSubmissions(c.Context(), &data.Submissions, req.Order, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
@@ -259,9 +259,9 @@ func CrawlerboardReject(service *services.CrawlerBoardService) fiber.Handler {
 func CrawlerboardAccept(service *services.CrawlerBoardService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		var req paginationParams
-		var body acceptRejectRequest
+		var data acceptRejectRequest
 
-		if err := c.Bind().Body(&body); err != nil {
+		if err := c.Bind().All(&data); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
@@ -269,7 +269,7 @@ func CrawlerboardAccept(service *services.CrawlerBoardService) fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
-		submissions, successful, failed, err := service.AcceptSubmissions(c.Context(), &body.Submissions, req.Order, req.Page, req.Limit)
+		submissions, successful, failed, err := service.AcceptSubmissions(c.Context(), &data.Submissions, req.Order, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
