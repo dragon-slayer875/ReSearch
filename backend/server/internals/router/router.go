@@ -1,15 +1,11 @@
 package router
 
 import (
-	// "crypto/sha256"
-	// "crypto/subtle"
-	// "os"
-	// "server/client/templates"
-	// "server/internals/handlers"
-	// "crypto/sha256"
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"os"
 	"server/internals/handlers"
 	"server/internals/services"
@@ -17,12 +13,10 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/extractors"
 	"github.com/gofiber/fiber/v3/middleware/keyauth"
-	// "github.com/gofiber/fiber/v3/middleware/keyauth"
-	// "github.com/gofiber/fiber/v3/middleware/keyauth"
 )
 
-func setupClient(app fiber.Router, searchService *services.SearchService, crawlerBoardService *services.CrawlerBoardService) {
-	authMiddleware := keyauth.New(keyauth.Config{
+func authMiddleware() fiber.Handler {
+	return keyauth.New(keyauth.Config{
 		Validator: func(c fiber.Ctx, key string) (bool, error) {
 			hashedAPIKey := sha256.Sum256([]byte(os.Getenv("ADMIN_KEY")))
 			hashedKey := sha256.Sum256([]byte(key))
@@ -53,20 +47,29 @@ func setupClient(app fiber.Router, searchService *services.SearchService, crawle
 			extractors.FromAuthHeader("Bearer"),
 		),
 	})
+}
+
+func adminRouter(app fiber.Router) {
+	app.Get("/", handlers.ServeAdmin())
+	app.Post("/", handlers.VerifyAdmin())
+}
+
+func crawlerBoardRouter(app fiber.Router, service *services.CrawlerBoardService) {
+	app.Get("/", handlers.CrawlerboardGet(service))
+	app.Post("/", handlers.CrawlerboardAdd(service))
+	app.Delete("/", handlers.CrawlerboardReject(service))
+	app.Post("/accept", handlers.CrawlerboardAccept(service))
+}
+
+func SetupRoutes(app fiber.Router, dbPool *pgxpool.Pool, redisClient *redis.Client) {
+	searchService := services.NewSearchService(dbPool, redisClient)
+	crawlerBoardService := services.NewCrawlerBoardService(redisClient)
 
 	app.Get("/", handlers.ServeIndex())
 
 	app.Get("/search", handlers.ServeResults(searchService))
 
-	app.Get("/admin", authMiddleware, handlers.ServeAdmin())
-	app.Post("/admin", authMiddleware, handlers.VerifyAdmin())
+	adminRouter(app.Group("/admin", authMiddleware()))
 
-	crawlerBoardRouter(app.Group("/crawlerboard", authMiddleware), crawlerBoardService)
-}
-
-func crawlerBoardRouter(app fiber.Router, service *services.CrawlerBoardService) {
-	app.Get("/", handlers.GetCrawlerboardPage(service))
-	app.Post("/", handlers.AddUrlToCrawlerboard(service))
-	app.Delete("/", handlers.RejectCrawlerboardPage(service))
-	app.Post("/accept", handlers.AcceptSubmissions(service))
+	crawlerBoardRouter(app.Group("/crawlerboard", authMiddleware()), crawlerBoardService)
 }

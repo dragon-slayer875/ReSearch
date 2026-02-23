@@ -11,6 +11,12 @@ import (
 	redisLib "github.com/redis/go-redis/v9"
 )
 
+const (
+	MalformedUrls   = "Unsupported/malformed urls"
+	ConflictingUrls = "Urls already exist"
+	NotFoundUrls    = "Urls not found"
+)
+
 type CrawlerBoardService struct {
 	redisClient *redisLib.Client
 }
@@ -36,7 +42,7 @@ func (cb *CrawlerBoardService) GetSubmissions(ctx context.Context, order string,
 
 func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions *[]string) (*[]string, *map[string][]string, error) {
 	sortedSetMembers := make(map[string]redisLib.Z, len(*submissions))
-	failureSubmissionMap := make(map[string][]string, 3)
+	failureSubmissionMap := make(map[string][]string, 2)
 
 	pipe := cb.redisClient.TxPipeline()
 
@@ -59,7 +65,7 @@ func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions *
 	}
 
 	if len(unsupportedSubmissions) != 0 {
-		failureSubmissionMap["Unsupported/malformed urls"] = unsupportedSubmissions
+		failureSubmissionMap[MalformedUrls] = unsupportedSubmissions
 	}
 
 	if len(sortedSetMembers) == 0 {
@@ -68,7 +74,7 @@ func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions *
 
 	addCmds := make(map[*redisLib.IntCmd]string, len(sortedSetMembers))
 
-	successfulSubmissions := make([]string, 0, len(sortedSetMembers))
+	successful := make([]string, 0, len(sortedSetMembers))
 
 	for submission, sortedSetMember := range sortedSetMembers {
 		addCmds[pipe.ZAddNX(ctx, redis.CrawlerboardKey, sortedSetMember)] = submission
@@ -79,36 +85,30 @@ func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions *
 		return nil, nil, err
 	}
 
-	erroredSubmissions := make([]string, 0, len(sortedSetMembers))
 	duplicateSubmissions := make([]string, 0, len(sortedSetMembers))
 
 	for addCmd, submission := range addCmds {
 		val, err := addCmd.Result()
 		if err != nil {
-			erroredSubmissions = append(erroredSubmissions, submission)
-			continue
+			return nil, nil, err
 		}
 
 		if val == 0 {
 			duplicateSubmissions = append(duplicateSubmissions, submission)
 		} else {
-			successfulSubmissions = append(successfulSubmissions, submission)
+			successful = append(successful, submission)
 		}
 	}
 
 	if len(duplicateSubmissions) != 0 {
-		failureSubmissionMap["Urls already exist"] = duplicateSubmissions
+		failureSubmissionMap[ConflictingUrls] = duplicateSubmissions
 	}
 
-	if len(erroredSubmissions) != 0 {
-		failureSubmissionMap["Error occured while adding urls"] = erroredSubmissions
-	}
-
-	return &successfulSubmissions, &failureSubmissionMap, nil
+	return &successful, &failureSubmissionMap, nil
 }
 
-func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submissionsToAccept *[]string, order string, page, limit int) (*[]string, int, *map[string][]string, error) {
-	var successful int
+func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submissionsToAccept *[]string, order string, page, limit int) (*[]string, *[]string, *map[string][]string, error) {
+	successful := make([]string, 0, len(*submissionsToAccept))
 	failureSubmissionMap := make(map[string][]string, 1)
 
 	remCmds := make([]*redisLib.IntCmd, len(*submissionsToAccept))
@@ -118,9 +118,14 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 		remCmds[idx] = pipe.ZRem(ctx, redis.CrawlerboardKey, submission)
 	}
 
+	getCmd := pipe.ZRevRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page))
+	if order == "asc" {
+		getCmd = pipe.ZRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page))
+	}
+
 	_, err := pipe.Exec(ctx)
 	if err != nil {
-		return nil, successful, nil, err
+		return nil, nil, nil, err
 	}
 
 	notFound := make([]string, 0, len(*submissionsToAccept))
@@ -131,7 +136,7 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 	for idx, cmd := range remCmds {
 		val, err := cmd.Result()
 		if err != nil {
-			return nil, successful, nil, err
+			return nil, nil, nil, err
 		}
 
 		if val == 0 {
@@ -150,21 +155,16 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 	}
 
 	if len(notFound) != 0 {
-		failureSubmissionMap["Urls not found"] = notFound
-	}
-
-	getCmd := pipe.ZRevRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page))
-	if order == "asc" {
-		getCmd = pipe.ZRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page))
+		failureSubmissionMap[NotFoundUrls] = notFound
 	}
 
 	submissions, err := getCmd.Result()
 	if err != nil {
-		return nil, successful, nil, err
+		return nil, nil, nil, err
 	}
 
 	if len(domainQueueMembers) == 0 {
-		return &submissions, successful, &failureSubmissionMap, nil
+		return &submissions, &successful, &failureSubmissionMap, nil
 	}
 
 	acceptPipe := cb.redisClient.TxPipeline()
@@ -174,33 +174,34 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 	domainsAddCmd := acceptPipe.ZAddNX(ctx, redis.DomainPendingQueue, domainQueueMembers...)
 
 	for _, qMember := range domainQueueMembers {
-		pushCmdsAndUrlsMap[acceptPipe.LPush(ctx, "crawl_queue:"+qMember.Member.(string), domainsAndUrls[qMember]...)] = domainsAndUrls[qMember]
+		domainUrls := domainsAndUrls[qMember]
+		pushCmdsAndUrlsMap[acceptPipe.LPush(ctx, "crawl_queue:"+qMember.Member.(string), domainUrls...)] = domainUrls
 	}
 
 	_, err = acceptPipe.Exec(ctx)
 	if err != nil {
-		return nil, successful, nil, err
+		return nil, nil, nil, err
 	}
 
 	if err = domainsAddCmd.Err(); err != nil {
-		return nil, successful, nil, err
+		return nil, nil, nil, err
 	}
 
 	for cmd, urls := range pushCmdsAndUrlsMap {
 		_, err := cmd.Result()
 		if err != nil {
-			return nil, successful, nil, err
+			return nil, nil, nil, err
 		}
 
-		successful += len(urls)
+		successful = append(successful, utils.ToStringSlice(urls)...)
 	}
 
-	return &submissions, successful, &failureSubmissionMap, nil
+	return &submissions, &successful, &failureSubmissionMap, nil
 }
 
 func (cb *CrawlerBoardService) RejectAndGetSubmissions(ctx context.Context, submissionsToReject *[]string, order string, page, limit int) (*[]string, *[]string, *map[string][]string, error) {
-	successfulRejections := make([]string, 0, len(*submissionsToReject))
-	failureSubmissionMap := make(map[string][]string, 2)
+	successful := make([]string, 0, len(*submissionsToReject))
+	failureSubmissionMap := make(map[string][]string, 1)
 
 	remCmds := make([]*redisLib.IntCmd, len(*submissionsToReject))
 	pipe := cb.redisClient.TxPipeline()
@@ -219,31 +220,25 @@ func (cb *CrawlerBoardService) RejectAndGetSubmissions(ctx context.Context, subm
 		return nil, nil, nil, err
 	}
 
-	errors := make([]string, 0, len(*submissionsToReject))
 	notFound := make([]string, 0, len(*submissionsToReject))
 
 	for idx, cmd := range remCmds {
 		val, err := cmd.Result()
 		if err != nil {
-			errors = append(errors, (*submissionsToReject)[idx])
-			continue
+			return nil, nil, nil, err
 		}
 
 		if val == 0 {
 			notFound = append(notFound, (*submissionsToReject)[idx])
 		} else {
-			successfulRejections = append(successfulRejections, (*submissionsToReject)[idx])
+			successful = append(successful, (*submissionsToReject)[idx])
 		}
 	}
 
 	if len(notFound) != 0 {
-		failureSubmissionMap["Urls not found"] = notFound
-	}
-
-	if len(errors) != 0 {
-		failureSubmissionMap["Error occured while rejecting urls"] = errors
+		failureSubmissionMap[NotFoundUrls] = notFound
 	}
 
 	submissions, err := getCmd.Result()
-	return &submissions, &successfulRejections, &failureSubmissionMap, err
+	return &submissions, &successful, &failureSubmissionMap, err
 }

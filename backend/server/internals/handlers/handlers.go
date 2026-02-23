@@ -11,8 +11,26 @@ import (
 	"github.com/gofiber/fiber/v3/log"
 )
 
+type addRequest struct {
+	Submissions string `json:"submissions" form:"submissions" validate:"required"`
+}
+
+type acceptRejectRequest struct {
+	Submissions []string `json:"submissions" form:"submissions" validate:"required"`
+}
+
+type paginationParams struct {
+	Order string `query:"order,default:dsc" validate:"oneof=asc dsc"`
+	Page  int    `query:"page,default:1" validate:"gt=0"`
+	Limit int    `query:"limit,default:10" validate:"gt=0"`
+}
+
 func ServeIndex() fiber.Handler {
 	return func(c fiber.Ctx) error {
+		if c.Get("accept") == "application/json" {
+			return c.SendString("Welcome to reSearch")
+		}
+
 		return utils.Render(c, templates.IndexPage())
 	}
 }
@@ -27,20 +45,24 @@ func VerifyAdmin() fiber.Handler {
 	return func(c fiber.Ctx) error {
 		admin := (c.Value("auth")).(bool)
 
-		if admin {
-			c.Cookie(&fiber.Cookie{
-				Name:     "rs_key",
-				Value:    c.FormValue("rs_key"),
-				SameSite: "Lax",
-				HTTPOnly: true,
-				Secure:   true,
-			})
-
-			return c.Redirect().To("/crawlerboard")
+		if !admin {
+			return c.Status(fiber.StatusUnauthorized).SendString("Missing or invalid admin key")
 		}
 
-		c.Status(fiber.StatusUnauthorized)
-		return c.SendString("Missing or invalid admin key")
+		if c.Get("accept") == "application/json" {
+			return c.SendString("admin")
+		}
+
+		c.Cookie(&fiber.Cookie{
+			Name:     "rs_key",
+			Value:    c.FormValue("rs_key"),
+			SameSite: "Lax",
+			HTTPOnly: true,
+			Secure:   true,
+		})
+
+		return c.Redirect().To("/crawlerboard")
+
 	}
 }
 
@@ -77,19 +99,25 @@ func ServeResults(service *services.SearchService) fiber.Handler {
 			suggestion = ""
 		}
 
-		return utils.Render(c, templates.ResultsPage(&utils.ResultsPageData{
+		data := &utils.ResultsPageData{
 			SearchResults: query_results,
 			TotalPages:    totalPages,
 			CurrentPage:   int64(req.Page),
 			Suggestion:    suggestion,
 			Query:         req.Query,
-		}))
+		}
+
+		if c.Get("accept") == "application/json" {
+			return c.JSON(*data)
+		}
+
+		return utils.Render(c, templates.ResultsPage(data))
 	}
 }
 
-func GetCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler {
+func CrawlerboardGet(service *services.CrawlerBoardService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		var req submissionGetRequest
+		var req paginationParams
 
 		if err := c.Bind().Query(&req); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest)
@@ -101,13 +129,23 @@ func GetCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler {
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
+		if c.Get("accept") == "application/json" {
+			return c.JSON(*submissions)
+		}
+
 		return utils.Render(c, templates.Crawlerboard(submissions, (c.Value("auth")).(bool)))
 	}
 }
 
-func AddUrlToCrawlerboard(service *services.CrawlerBoardService) fiber.Handler {
+func CrawlerboardAdd(service *services.CrawlerBoardService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		submissions := strings.Split(c.FormValue("submission"), ",")
+		var body addRequest
+
+		if err := c.Bind().Body(&body); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+
+		submissions := strings.Split(body.Submissions, ",")
 
 		successful, failed, err := service.AddSubmissions(c.Context(), &submissions)
 		if err != nil {
@@ -115,18 +153,28 @@ func AddUrlToCrawlerboard(service *services.CrawlerBoardService) fiber.Handler {
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
+		if len(*successful) != 0 && len(*failed) != 0 || len(*failed) > 1 {
+			c.Status(fiber.StatusMultiStatus)
+		} else if _, ok := (*failed)[services.ConflictingUrls]; ok {
+			c.Status(fiber.StatusConflict)
+		} else if _, ok := (*failed)[services.MalformedUrls]; ok {
+			c.Status(fiber.StatusUnprocessableEntity)
+		} else if len(*successful) != 0 {
+			c.Status(fiber.StatusCreated)
+		}
+
+		if c.Get("accept") == "application/json" {
+			return c.JSON(map[string]any{
+				"Successful": *successful,
+				"Failed":     *failed,
+			})
+		}
+
 		notifications := new(utils.Notifications)
 		notifications.Failure = map[string]string{}
 
 		if len(*successful) != 0 {
 			notifications.Success = fmt.Sprintln(len(*successful), "url(s) added")
-			c.Status(fiber.StatusCreated)
-
-			if len(*failed) != 0 {
-				c.Status(fiber.StatusMultiStatus)
-			}
-		} else {
-			c.Status(fiber.StatusBadRequest)
 		}
 
 		for error, output := range *failed {
@@ -147,12 +195,12 @@ func AddUrlToCrawlerboard(service *services.CrawlerBoardService) fiber.Handler {
 
 }
 
-func RejectCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler {
+func CrawlerboardReject(service *services.CrawlerBoardService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		var formData map[string][]string
-		var req submissionGetRequest
+		var req paginationParams
+		var body acceptRejectRequest
 
-		if err := c.Bind().Query(&formData); err != nil {
+		if err := c.Bind().Body(&body); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
@@ -160,12 +208,23 @@ func RejectCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
-		submissionsToReject := formData["selected-urls"]
-
-		submissions, successful, failed, err := service.RejectAndGetSubmissions(c.Context(), &submissionsToReject, req.Order, req.Page, req.Limit)
+		submissions, successful, failed, err := service.RejectAndGetSubmissions(c.Context(), &body.Submissions, req.Order, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
+		}
+
+		if len(*successful) != 0 && len(*failed) != 0 {
+			c.Status(fiber.StatusMultiStatus)
+		} else if _, ok := (*failed)[services.NotFoundUrls]; ok {
+			c.Status(fiber.StatusNotFound)
+		}
+
+		if c.Get("accept") == "application/json" {
+			return c.JSON(map[string]any{
+				"Successful": *successful,
+				"Failed":     *failed,
+			})
 		}
 
 		notifications := new(utils.Notifications)
@@ -173,12 +232,6 @@ func RejectCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler
 
 		if len(*successful) != 0 {
 			notifications.Success = fmt.Sprintln(len(*successful), "urls rejected")
-
-			if len(*failed) != 0 {
-				c.Status(fiber.StatusMultiStatus)
-			}
-		} else {
-			c.Status(fiber.StatusBadRequest)
 		}
 
 		for error, output := range *failed {
@@ -195,12 +248,12 @@ func RejectCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler
 	}
 }
 
-func AcceptCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler {
+func CrawlerboardAccept(service *services.CrawlerBoardService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		var formData map[string][]string
-		var req submissionGetRequest
+		var req paginationParams
+		var body acceptRejectRequest
 
-		if err := c.Bind().Query(&formData); err != nil {
+		if err := c.Bind().Body(&body); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
@@ -208,25 +261,30 @@ func AcceptCrawlerboardPage(service *services.CrawlerBoardService) fiber.Handler
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
-		submissionsToAccept := formData["selected-urls"]
-
-		submissions, successful, failed, err := service.AcceptSubmissions(c.Context(), &submissionsToAccept, req.Order, req.Page, req.Limit)
+		submissions, successful, failed, err := service.AcceptSubmissions(c.Context(), &body.Submissions, req.Order, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
+		if len(*successful) != 0 && len(*failed) != 0 {
+			c.Status(fiber.StatusMultiStatus)
+		} else if _, ok := (*failed)[services.NotFoundUrls]; ok {
+			c.Status(fiber.StatusNotFound)
+		}
+
+		if c.Get("accept") == "application/json" {
+			return c.JSON(map[string]any{
+				"Successful": *successful,
+				"Failed":     *failed,
+			})
+		}
+
 		notifications := new(utils.Notifications)
 		notifications.Failure = map[string]string{}
 
-		if successful != 0 {
-			notifications.Success = fmt.Sprintln(successful, "urls accepted")
-
-			if len(*failed) != 0 {
-				c.Status(fiber.StatusMultiStatus)
-			}
-		} else {
-			c.Status(fiber.StatusBadRequest)
+		if len(*successful) != 0 {
+			notifications.Success = fmt.Sprintln(len(*successful), "urls accepted")
 		}
 
 		for error, output := range *failed {

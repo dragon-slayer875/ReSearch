@@ -21,7 +21,8 @@ templ base(title string) {
         "responseHandling":[
             {"code":"204", "swap": false},
             {"code":"[23]..", "swap": true},
-            {"code":"[4]..", "swap": true, "error":false},
+            {"code":"400", "swap": false},
+            {"code":"[4]..", "swap": true},
             {"code":"[5]..", "swap": false, "error":true},
             {"code":"...", "swap": true}
         ]
@@ -162,7 +163,7 @@ templ searchResult(result database.GetSearchResultsRow) {
 
 templ cralwerboardUrlAddForm() {
 	<form class="text-action-form" hx-post="/crawlerboard" hx-target="#crawlerboard-content" hx-swap="afterbegin">
-		<input type="url" name="submission" placeholder="https://www.example.com"/>
+		<input type="url" name="submissions" placeholder="https://www.example.com"/>
 		<button type="submit" class="text-action-btn">Add</button>
 	</form>
 }
