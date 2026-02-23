@@ -4,15 +4,21 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 	"os"
 	"server/internals/handlers"
 	"server/internals/services"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/extractors"
+	"github.com/gofiber/fiber/v3/middleware/cors"
+	"github.com/gofiber/fiber/v3/middleware/idempotency"
 	"github.com/gofiber/fiber/v3/middleware/keyauth"
+	"github.com/gofiber/fiber/v3/middleware/limiter"
+	"github.com/gofiber/fiber/v3/middleware/static"
 )
 
 func authMiddleware() fiber.Handler {
@@ -64,6 +70,19 @@ func crawlerBoardRouter(app fiber.Router, service *services.CrawlerBoardService)
 func SetupRoutes(app fiber.Router, dbPool *pgxpool.Pool, redisClient *redis.Client) {
 	searchService := services.NewSearchService(dbPool, redisClient)
 	crawlerBoardService := services.NewCrawlerBoardService(redisClient)
+
+	app.Use(cors.New())
+
+	app.Use(limiter.New(limiter.Config{
+		Max:                   20,
+		Expiration:            30 * time.Second,
+		LimiterMiddleware:     limiter.SlidingWindow{},
+		DisableValueRedaction: false, // Request keys are redacted by default to prevent leakage, set to true if needed for troubleshooting
+	}))
+
+	app.Use(idempotency.New()) // Default config skips safe methods: GET, HEAD, OPTIONS, TRACE
+
+	app.Use("/", static.New("public"))
 
 	app.Get("/", handlers.ServeIndex())
 

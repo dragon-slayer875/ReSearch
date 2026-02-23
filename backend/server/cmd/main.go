@@ -16,8 +16,6 @@ import (
 	fiberZap "github.com/gofiber/contrib/v3/zap"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/log"
-	"github.com/gofiber/fiber/v3/middleware/cors"
-	"github.com/gofiber/fiber/v3/middleware/static"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
@@ -81,7 +79,6 @@ func main() {
 	}()
 
 	app := fiber.New(fiber.Config{
-		UnescapePath:    true,
 		StructValidator: utils.New(validator.New()),
 	})
 
@@ -98,11 +95,9 @@ func main() {
 		os.Exit(0)
 	}()
 
-	app.Use(cors.New())
 	app.Use(fiberZap.New(fiberZap.Config{
 		Logger: logger,
 	}))
-	app.Use("/", static.New("public"))
 
 	fiberLogger := fiberZap.NewLogger(fiberZap.LoggerConfig{
 		SetLogger: logger.WithOptions(zap.AddCallerSkip(3)),
