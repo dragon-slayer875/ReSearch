@@ -8,7 +8,6 @@ import (
 
 	"server/internals/storage/database"
 	"server/internals/storage/redis"
-	"server/internals/utils"
 	"slices"
 	"strings"
 
@@ -73,60 +72,62 @@ func (l *SearchService) GetSearchResults(ctx context.Context, queryWords *[]stri
 func (ss *SearchService) GetSuggestions(ctx context.Context, query string) (*[]string, string, *[]string, error) {
 	var suggestion string
 	querySplit := strings.Fields(query)
+	suggestedWords := make([]string, len(querySplit))
 
-	contentWordIndices := make([]int, 0, len(querySplit))
-	contentWords := make([]string, 0, len(querySplit))
+	// Disabling stop word detection since people can search for anything
 
-	for idx, word := range querySplit {
-		if !utils.IsStopWord(word) {
-			contentWordIndices = append(contentWordIndices, idx)
-			contentWords = append(contentWords, word)
-		}
-	}
+	// contentWordIndices := make([]int, 0, len(querySplit))
+	// contentWords := make([]string, 0, len(querySplit))
+	//
+	// for idx, word := range querySplit {
+	// 	if !utils.IsStopWord(word) {
+	// 		contentWordIndices = append(contentWordIndices, idx)
+	// 		contentWords = append(contentWords, word)
+	// 	}
+	// }
 
-	wordsAndSuggestions := make([]string, len(contentWords)*2)
+	wordsAndSuggestions := make([]string, len(querySplit)*2)
 
-	suggestions, err := ss.rClient.HMGet(ctx, redis.DictionaryKey, contentWords...).Result()
+	suggestions, err := ss.rClient.HMGet(ctx, redis.DictionaryKey, querySplit...).Result()
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	var indexedWords []string
 	cacheSuggestionsMiss := slices.Contains(suggestions, nil)
 
 	if !cacheSuggestionsMiss {
-		for idx, word := range contentWords {
-			querySplit[contentWordIndices[idx]] = (suggestions[idx]).(string)
+		for idx, word := range querySplit {
+			suggestedWords[idx] = (suggestions[idx]).(string)
 			wordsAndSuggestions[idx*2] = word
 			wordsAndSuggestions[idx*2+1] = (suggestions[idx]).(string)
 		}
 
-		suggestion = strings.Join(querySplit, " ")
+		suggestion = strings.Join(suggestedWords, " ")
 
-		return &contentWords, suggestion, &wordsAndSuggestions, nil
+		return &querySplit, suggestion, &wordsAndSuggestions, nil
 	}
 
-	indexedWords, err = ss.queries.GetIndexedWords(ctx)
+	indexedWords, err := ss.queries.GetIndexedWords(ctx)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	for idx, word := range contentWords {
+	for idx, word := range querySplit {
 		wordsAndSuggestions[idx*2] = word
 		if suggestions[idx] == nil {
 			// The err is left unchecked because the FuzzySearch only returns an error in two cases,
 			// either while using hamming distance or an invalid algorithm identifier
 			res, _ := edlib.FuzzySearch(word, indexedWords, edlib.Levenshtein)
-			querySplit[contentWordIndices[idx]] = res
+			suggestedWords[idx] = res
 			wordsAndSuggestions[idx*2+1] = res
 		} else {
 			wordsAndSuggestions[idx*2+1] = (suggestions[idx]).(string)
 		}
 	}
 
-	suggestion = strings.Join(querySplit, " ")
+	suggestion = strings.Join(suggestedWords, " ")
 
-	return &contentWords, suggestion, &wordsAndSuggestions, nil
+	return &querySplit, suggestion, &wordsAndSuggestions, nil
 }
 
 func (ss *SearchService) CacheQueryData(ctx context.Context, queryContentWords *[]string, queryResults *[]database.GetSearchResultsRow, totalPages int64, wordsAndSugesstions *[]string, useCache bool) error {

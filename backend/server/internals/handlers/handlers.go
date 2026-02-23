@@ -78,7 +78,7 @@ func ServeResults(service *services.SearchService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		var req searchRequest
 
-		if err := c.Bind().Query(req); err != nil {
+		if err := c.Bind().Query(&req); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 
