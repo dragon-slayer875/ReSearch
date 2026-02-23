@@ -11,6 +11,14 @@ import (
 	"github.com/gofiber/fiber/v3/log"
 )
 
+type searchRequest struct {
+	// Sort  string `query:"sort,default:score" validate:"oneof=score time"`
+	// Order string `query:"order,default:dsc" validate:"oneof=asc dsc"`
+	Limit int32  `query:"limit,default:10" validate:"gt=0"`
+	Page  int32  `query:"page,default:1" validate:"gt=0"`
+	Query string `query:"query"`
+}
+
 type addRequest struct {
 	Submissions string `json:"submissions" form:"submissions" validate:"required"`
 }
@@ -68,13 +76,13 @@ func VerifyAdmin() fiber.Handler {
 
 func ServeResults(service *services.SearchService) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		req := new(utils.SearchGetRequest)
+		var req searchRequest
 
 		if err := c.Bind().Query(req); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 
-		isFirstPage := req.Page == 1
+		useCache := req.Page == 1 && req.Limit == 10
 
 		contentWords, suggestion, wordsAndSuggestions, err := service.GetSuggestions(c.Context(), req.Query)
 		if err != nil {
@@ -82,14 +90,14 @@ func ServeResults(service *services.SearchService) fiber.Handler {
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
-		query_results, totalPages, err := service.GetSearchResults(c.Context(), contentWords, req.Limit, req.Page, isFirstPage)
+		query_results, totalPages, err := service.GetSearchResults(c.Context(), contentWords, req.Limit, req.Page, useCache)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
 		go func() {
-			err = service.CacheQueryData(c.Context(), contentWords, query_results, totalPages, wordsAndSuggestions, isFirstPage)
+			err = service.CacheQueryData(c.Context(), contentWords, query_results, totalPages, wordsAndSuggestions, useCache)
 			if err != nil {
 				log.Error(err)
 			}

@@ -34,9 +34,9 @@ func NewSearchService(pool *pgxpool.Pool, rClient *redisLib.Client) *SearchServi
 	}
 }
 
-func (l *SearchService) GetSearchResults(ctx context.Context, queryWords *[]string, limit, page int32, isFirstPage bool) (*[]database.GetSearchResultsRow, int64, error) {
+func (l *SearchService) GetSearchResults(ctx context.Context, queryWords *[]string, limit, page int32, useCache bool) (*[]database.GetSearchResultsRow, int64, error) {
 
-	if isFirstPage {
+	if useCache {
 		queryKey := redis.SearchResultsCachePrefix + strings.Join(*queryWords, "")
 		cacheGetCmd := l.rClient.Get(ctx, queryKey)
 		if err := cacheGetCmd.Err(); err != nil && err != redisLib.Nil {
@@ -129,11 +129,11 @@ func (ss *SearchService) GetSuggestions(ctx context.Context, query string) (*[]s
 	return &contentWords, suggestion, &wordsAndSuggestions, nil
 }
 
-func (ss *SearchService) CacheQueryData(ctx context.Context, queryContentWords *[]string, queryResults *[]database.GetSearchResultsRow, totalPages int64, wordsAndSugesstions *[]string, isFirstPage bool) error {
+func (ss *SearchService) CacheQueryData(ctx context.Context, queryContentWords *[]string, queryResults *[]database.GetSearchResultsRow, totalPages int64, wordsAndSugesstions *[]string, useCache bool) error {
 	// Caching for one hour for now
 	pipe := ss.rClient.TxPipeline()
 
-	if isFirstPage {
+	if useCache {
 		queryData := searchResultsCacheData{
 			Results:    *queryResults,
 			TotalPages: totalPages,
