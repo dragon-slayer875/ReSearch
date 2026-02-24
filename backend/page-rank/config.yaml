@@ -1,0 +1,15 @@
+page_rank:
+  interval: "24h" # pattern is <number><unit> ns, us, ms, s, m, h
+  lock_duration: "1h"
+
+logging:
+  level: "debug" # "debug" / "info" / "warn" / "error" / "fatal"
+  encoding: "console" # "json" / "console"
+  output_paths: # "stderr" / "stdout" / "<absolute/file/path>" / "<relative/file/path>"
+    - "stderr"
+
+retryer:
+  max_retries: 5
+  initial_backoff: "500ms"
+  max_backoff: "30s"
+  backoff_multiplier: 2
