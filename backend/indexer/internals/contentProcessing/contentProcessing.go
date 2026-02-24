@@ -79,7 +79,7 @@ func ProcessCrawledPage(crawledPageContent *redis.CrawledPage) (*utils.IndexerPa
 		processedPage.TextContentSummary = strings.Join(words[:200], " ")
 	}
 
-	cleanedTextContent := removeStopWords(strings.FieldsFunc(textContent.String(), func(r rune) bool {
+	cleanedTextContent := strings.FieldsFunc(textContent.String(), func(r rune) bool {
 		// Split on punctuation except apostrophes, or whitespace
 		if unicode.IsSpace(r) {
 			return true
@@ -88,9 +88,9 @@ func ProcessCrawledPage(crawledPageContent *redis.CrawledPage) (*utils.IndexerPa
 			return true
 		}
 		return false
-	}))
+	})
 
-	// Disabling stemming for now, for testing more precise indexing and querying
+	// Disabling stemming and stop word filtering for now, for testing more precise indexing and querying
 	// stemmedTextContent := stemWords(cleanedTextContent)
 	processedPage.CleanTextContent = &cleanedTextContent
 
