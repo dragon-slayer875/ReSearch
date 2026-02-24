@@ -15,6 +15,15 @@ type ResultsPageData struct {
 	Query         string
 }
 
+type CrawlerboardPageData struct {
+	Submissions *[]string
+	TotalPages  int64
+	CurrentPage int64
+	Limit       int
+	Order       string
+	Admin       bool
+}
+
 type Notifications struct {
 	Success string
 	Failure map[string]string // map of error and output

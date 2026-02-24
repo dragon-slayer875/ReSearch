@@ -69,7 +69,7 @@ templ AdminPage() {
 	}
 }
 
-templ Crawlerboard(submissions *[]string, admin bool) {
+templ Crawlerboard(data *utils.CrawlerboardPageData) {
 	@base("Crawlerboard - reSearch") {
 		@header() {
 			<div style="width: 100%; display:flex; gap: 2rem;">
@@ -85,6 +85,6 @@ templ Crawlerboard(submissions *[]string, admin bool) {
 				<h1 style="font-weight: 300;">Crawlerboard</h1>
 			</div>
 		}
-		@crawlerboard(submissions, admin)
+		@crawlerboard(data)
 	}
 }

@@ -4,6 +4,7 @@ import "server/internals/storage/database"
 import "server/internals/utils"
 import "fmt"
 import "net/url"
+import "strconv"
 
 templ base(title string) {
 	<!DOCTYPE html>
@@ -168,76 +169,19 @@ templ cralwerboardUrlAddForm() {
 	</form>
 }
 
-templ crawlerboard(submissions *[]string, admin bool) {
+templ crawlerboard(data *utils.CrawlerboardPageData) {
 	@mainContainer() {
 		<div style="display: flex; flex: 1; justify-content: space-around;  max-width: 40rem;">
 			<form
 				id="crawlerboard-content-form"
-				x-data={ fmt.Sprintf("{ selected: [], entries: %d }", len(*submissions)) }
+				x-data={ fmt.Sprintf("{ selected: [], entries: %d }", len(*(data.Submissions))) }
 				style="flex: 1; display: flex; flex-direction: column; gap: 1rem; max-height: 75svh;"
 			>
 				<span style="flex: 1; margin-top: 2rem;" x-show="entries ? false:true" id="crawlerboard-no-item-msg">
 					Sorry nothing to show. Try adding some resources.
 				</span>
-				<table x-show="entries">
-					if admin {
-						<thead class="box info tool-bar">
-							<tr>
-								<th style="flex: 1; display: flex;">
-									<label style="display: flex; gap: 1rem; padding: 1rem 2rem;  align-items: center;">
-										<input
-											type="checkbox"
-											name="select-all-urls"
-											:checked="selected.length == $refs.crawlerboard_content.querySelectorAll('tr').length - 1"
-											@click="if (selected.length !== 0) { selected = [] } 
-											else {
-											$refs.crawlerboard_content.querySelectorAll('input[type=\'checkbox\']')
-											.forEach(cb=>{
-											cb.checked = true
-											selected.push(cb.value)
-											})
-											}"
-										/>
-										<span>
-											<slot x-text="selected.length"></slot>
-											urls selected
-										</span>
-									</label>
-								</th>
-							</tr>
-						</thead>
-					}
-					@CrawlerboardEntries(submissions, admin)
-					<tfoot>
-						<tr>
-							<td style="padding: 1rem; align-items: center; justify-content: space-between;">
-								<form action="/crawlerboard" method="get">
-									<div style="display: flex; gap: 1rem;">
-										<label>
-											<span>Size</span>
-											<select name="limit">
-												<option value="10">10</option>
-												<option value="20">20</option>
-												<option value="50">50</option>
-											</select>
-										</label>
-										<label>
-											<span>Order</span>
-											<select name="order">
-												<option value="dsc">Newest</option>
-												<option value="asc">Oldest</option>
-											</select>
-										</label>
-									</div>
-									<button style="background-color: pink;">
-										Refresh
-									</button>
-								</form>
-							</td>
-						</tr>
-					</tfoot>
-				</table>
-				if admin {
+				@CrawlerboardTable(data)
+				if data.Admin {
 					<div style="display: flex; width: 100%;  gap: 1rem;">
 						<button
 							class="crawlerboard-action-btn"
@@ -269,6 +213,16 @@ templ crawlerboard(submissions *[]string, admin bool) {
 				}
 				<output id="toast-container">Test</output>
 			</form>
+			<form
+				id="table-controls"
+				action="/crawlerboard"
+				method="get"
+				hx-get="/crawlerboard"
+				hx-trigger="change[event.target.matches('select')] from:body"
+				hx-swap="outerHTML"
+				hx-target="table"
+				hx-push-url="true"
+			></form>
 		</div>
 	}
 }
@@ -291,6 +245,100 @@ templ Notify(notifcations *utils.Notifications) {
 	</output>
 }
 
+templ CrawlerboardTable(data *utils.CrawlerboardPageData) {
+	<table x-show="entries">
+		if data.Admin {
+			<thead class="box info tool-bar">
+				<tr>
+					<th style="flex: 1; display: flex;">
+						<label style="display: flex; gap: 1rem; padding: 1rem 2rem;  align-items: center;">
+							<input
+								type="checkbox"
+								name="select-all-urls"
+								:checked="selected.length == $refs.crawlerboard_content.querySelectorAll('tr').length - 1"
+								@click="if (selected.length !== 0) { selected = [] } 
+											else {
+											$refs.crawlerboard_content.querySelectorAll('input[type=\'checkbox\']')
+											.forEach(cb=>{
+											cb.checked = true
+											selected.push(cb.value)
+											})
+											}"
+							/>
+							<span>
+								<slot x-text="selected.length"></slot>
+								urls selected
+							</span>
+						</label>
+					</th>
+				</tr>
+			</thead>
+		}
+		@CrawlerboardEntries(data.Submissions, data.Admin)
+		<tfoot>
+			<tr>
+				<td style="padding: 1rem; align-items: center; justify-content: space-between;">
+					<div style="display: flex; gap: 1rem;">
+						<label>
+							<span>Size</span>
+							<select name="limit" form="table-controls">
+								for _, limit := range []int{10,20,50} {
+									if data.Limit == limit {
+										<option value={ strconv.Itoa(limit) } selected>{ limit }</option>
+									} else {
+										<option value={ strconv.Itoa(limit) }>{ limit }</option>
+									}
+								}
+							</select>
+						</label>
+						<label>
+							<span>Order</span>
+							<select name="order" form="table-controls">
+								for _, order := range []string{"new","old"} {
+									if data.Order == order {
+										<option value={ order } selected>{ order }</option>
+									} else {
+										<option value={ order }>{ order }</option>
+									}
+								}
+							</select>
+						</label>
+						<label>
+							<span>Page</span>
+							<select id="pages-select" name="page" form="table-controls">
+								for page := range data.TotalPages {
+									if data.CurrentPage == page+1 {
+										<option value={ page + 1 } selected>{ page+1 }</option>
+									} else {
+										<option value={ page + 1 }>{ page+1 }</option>
+									}
+								}
+							</select>
+						</label>
+					</div>
+					<button style="background-color: pink;" form="table-controls">
+						Refresh
+					</button>
+				</td>
+			</tr>
+		</tfoot>
+	</table>
+}
+
+templ CrawlerboardEntries(submissions *[]string, admin bool) {
+	<tbody
+		@htmx:after-settle="entries = $el.querySelectorAll('tr').length - 1; selected = []"
+		x-ref="crawlerboard_content"
+		id="crawlerboard-content"
+		style="padding: 1rem; border: 1px solid;"
+	>
+		for _, submission := range *submissions {
+			@CrawlerboardEntry(submission, admin)
+		}
+		<tr style="display: none;"></tr>
+	</tbody>
+}
+
 templ CrawlerboardEntry(submission string, admin bool) {
 	<tr>
 		<td style="justify-content: space-between; align-items: center;">
@@ -307,20 +355,6 @@ templ CrawlerboardEntry(submission string, admin bool) {
 			</a>
 		</td>
 	</tr>
-}
-
-templ CrawlerboardEntries(submissions *[]string, admin bool) {
-	<tbody
-		@htmx:after-settle="entries = $el.querySelectorAll('tr').length - 1; selected = []"
-		x-ref="crawlerboard_content"
-		id="crawlerboard-content"
-		style="padding: 1rem; border: 1px solid;"
-	>
-		for _, submission := range *submissions {
-			@CrawlerboardEntry(submission, admin)
-		}
-		<tr style="display: none;"></tr>
-	</tbody>
 }
 
 templ searchIcon() {

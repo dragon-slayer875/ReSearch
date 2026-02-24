@@ -27,17 +27,35 @@ func NewCrawlerBoardService(client *redisLib.Client) *CrawlerBoardService {
 	}
 }
 
-func (cb *CrawlerBoardService) GetSubmissions(ctx context.Context, order string, page, limit int) (*[]string, error) {
-	var results []string
-	var err error
+func (cb *CrawlerBoardService) GetSubmissions(ctx context.Context, order string, page, limit int) (*[]string, int64, error) {
 
-	if order == "asc" {
-		results, err = cb.redisClient.ZRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page)).Result()
+	pipe := cb.redisClient.TxPipeline()
+
+	var rangeCmd *redisLib.StringSliceCmd
+	cardCmd := pipe.ZCard(ctx, redis.CrawlerboardKey)
+
+	start := int64(limit * (page - 1))
+	end := int64(limit*page - 1)
+
+	if order == "old" {
+		rangeCmd = pipe.ZRange(ctx, redis.CrawlerboardKey, start, end)
 	} else {
-		results, err = cb.redisClient.ZRevRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page)).Result()
+		rangeCmd = pipe.ZRevRange(ctx, redis.CrawlerboardKey, start, end)
 	}
 
-	return &results, err
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	submissions, err := rangeCmd.Result()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	total, err := cardCmd.Result()
+
+	return &submissions, total, err
 }
 
 func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions *[]string) (*[]string, *map[string][]string, error) {

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"math"
 	"server/internals/services"
 	"server/internals/templates"
 	"server/internals/utils"
@@ -28,7 +29,7 @@ type acceptRejectRequest struct {
 }
 
 type paginationParams struct {
-	Order string `query:"order,default:dsc" validate:"oneof=asc dsc"`
+	Order string `query:"order,default:new" validate:"oneof=old new"`
 	Page  int    `query:"page,default:1" validate:"gt=0"`
 	Limit int    `query:"limit,default:10" validate:"gt=0"`
 }
@@ -131,17 +132,45 @@ func CrawlerboardGet(service *services.CrawlerBoardService) fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 
-		submissions, err := service.GetSubmissions(c.Context(), req.Order, req.Page, req.Limit)
+		submissions, total, err := service.GetSubmissions(c.Context(), req.Order, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
+		totalPages := int64(math.Ceil(float64(total) / float64(req.Limit)))
+
 		if c.Get("accept") == "application/json" {
-			return c.JSON(*submissions)
+			return c.JSON(map[string]any{
+				"Submissions": *submissions,
+				"TotalPages":  totalPages,
+			})
 		}
 
-		return utils.Render(c, templates.Crawlerboard(submissions, (c.Value("auth")).(bool)))
+		if int64(req.Page) > totalPages {
+			submissions, total, err = service.GetSubmissions(c.Context(), req.Order, 1, req.Limit)
+			if err != nil {
+				log.Error(err)
+				return fiber.NewError(fiber.StatusInternalServerError)
+			}
+		}
+
+		totalPages = int64(math.Ceil(float64(total) / float64(req.Limit)))
+
+		data := &utils.CrawlerboardPageData{
+			Submissions: submissions,
+			TotalPages:  totalPages,
+			CurrentPage: int64(req.Page),
+			Limit:       req.Limit,
+			Order:       req.Order,
+			Admin:       (c.Value("auth")).(bool),
+		}
+
+		if c.Get("HX-Request") == "true" {
+			return utils.Render(c, templates.CrawlerboardTable(data))
+		}
+
+		return utils.Render(c, templates.Crawlerboard(data))
 	}
 }
 
