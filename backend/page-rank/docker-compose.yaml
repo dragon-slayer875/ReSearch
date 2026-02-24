@@ -1,0 +1,6 @@
+services:
+  research-page-rank:
+    build: .
+    env_file: ".env"
+    deploy:
+      replicas: 1
