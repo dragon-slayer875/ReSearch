@@ -163,7 +163,7 @@ templ searchResult(result database.GetSearchResultsRow) {
 }
 
 templ cralwerboardUrlAddForm() {
-	<form class="text-action-form" hx-post="/crawlerboard" hx-target="#crawlerboard-content" hx-swap="afterbegin">
+	<form class="text-action-form" hx-post="/crawlerboard" hx-swap="none">
 		<input type="url" name="submissions" placeholder="https://www.example.com"/>
 		<button type="submit" class="text-action-btn">Add</button>
 	</form>
@@ -176,6 +176,11 @@ templ crawlerboard(data *utils.CrawlerboardPageData) {
 				id="crawlerboard-content-form"
 				x-data={ fmt.Sprintf("{ selected: [], entries: %d }", len(*(data.Submissions))) }
 				style="flex: 1; display: flex; flex-direction: column; gap: 1rem; max-height: 75svh;"
+				@htmx:after-settle="
+				if ($event.target.tagName === 'TABLE') {
+				entries = $el.querySelectorAll('tr').length - 3;
+				selected = [];
+				}"
 			>
 				<span style="flex: 1; margin-top: 2rem;" x-show="entries ? false:true" id="crawlerboard-no-item-msg">
 					Sorry nothing to show. Try adding some resources.
@@ -211,14 +216,14 @@ templ crawlerboard(data *utils.CrawlerboardPageData) {
 						</button>
 					</div>
 				}
-				<output id="toast-container">Test</output>
+				<output id="toast-container"></output>
 			</form>
 			<form
 				id="table-controls"
 				action="/crawlerboard"
 				method="get"
 				hx-get="/crawlerboard"
-				hx-trigger="change[event.target.matches('select')] from:body"
+				hx-trigger="change[event.target.matches('select')] from:body, crawlerboard-updated from:body"
 				hx-swap="outerHTML"
 				hx-target="table"
 				hx-push-url="true"
@@ -274,7 +279,12 @@ templ CrawlerboardTable(data *utils.CrawlerboardPageData) {
 				</tr>
 			</thead>
 		}
-		@CrawlerboardEntries(data.Submissions, data.Admin)
+		<tbody x-ref="crawlerboard_content" id="crawlerboard-content" style="padding: 1rem; border: 1px solid;">
+			for _, submission := range *data.Submissions {
+				@CrawlerboardEntry(submission, data.Admin)
+			}
+			<tr style="display: none;"></tr>
+		</tbody>
 		<tfoot>
 			<tr>
 				<td style="padding: 1rem; align-items: center; justify-content: space-between;">
@@ -323,20 +333,6 @@ templ CrawlerboardTable(data *utils.CrawlerboardPageData) {
 			</tr>
 		</tfoot>
 	</table>
-}
-
-templ CrawlerboardEntries(submissions *[]string, admin bool) {
-	<tbody
-		@htmx:after-settle="entries = $el.querySelectorAll('tr').length - 1; selected = []"
-		x-ref="crawlerboard_content"
-		id="crawlerboard-content"
-		style="padding: 1rem; border: 1px solid;"
-	>
-		for _, submission := range *submissions {
-			@CrawlerboardEntry(submission, admin)
-		}
-		<tr style="display: none;"></tr>
-	</tbody>
 }
 
 templ CrawlerboardEntry(submission string, admin bool) {

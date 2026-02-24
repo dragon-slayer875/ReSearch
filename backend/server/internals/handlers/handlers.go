@@ -190,7 +190,10 @@ func CrawlerboardAdd(service *services.CrawlerBoardService) fiber.Handler {
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
-		if len(*successful) != 0 && len(*failed) != 0 || len(*failed) > 1 {
+		if len(*successful) != 0 && len(*failed) != 0 {
+			c.Status(fiber.StatusMultiStatus)
+			c.Set("HX-Trigger", "crawlerboard-updated")
+		} else if len(*failed) > 1 {
 			c.Status(fiber.StatusMultiStatus)
 		} else if _, ok := (*failed)[services.ConflictingUrls]; ok {
 			c.Status(fiber.StatusConflict)
@@ -198,6 +201,7 @@ func CrawlerboardAdd(service *services.CrawlerBoardService) fiber.Handler {
 			c.Status(fiber.StatusUnprocessableEntity)
 		} else if len(*successful) != 0 {
 			c.Status(fiber.StatusCreated)
+			c.Set("HX-Trigger", "crawlerboard-updated")
 		}
 
 		if c.Get("accept") == "application/json" {
@@ -218,16 +222,7 @@ func CrawlerboardAdd(service *services.CrawlerBoardService) fiber.Handler {
 			notifications.Failure[error] = strings.Join(output, ", ")
 		}
 
-		for _, submission := range *successful {
-			err := utils.Render(c, templates.CrawlerboardEntry(submission, (c.Value("auth")).(bool)))
-			if err != nil {
-				log.Error(err)
-				return fiber.NewError(fiber.StatusInternalServerError)
-			}
-		}
-
 		return utils.Render(c, templates.Notify(notifications))
-
 	}
 
 }
@@ -245,16 +240,19 @@ func CrawlerboardReject(service *services.CrawlerBoardService) fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
-		submissions, successful, failed, err := service.RejectAndGetSubmissions(c.Context(), &data.Submissions, req.Order, req.Page, req.Limit)
+		successful, failed, err := service.RejectSubmissions(c.Context(), &data.Submissions, req.Order, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
+		c.Set("HX-Trigger", "crawlerboard-updated")
+
 		if len(*successful) != 0 && len(*failed) != 0 {
 			c.Status(fiber.StatusMultiStatus)
 		} else if _, ok := (*failed)[services.NotFoundUrls]; ok {
 			c.Status(fiber.StatusNotFound)
+			c.Set("HX-Trigger", "")
 		}
 
 		if c.Get("accept") == "application/json" {
@@ -275,12 +273,6 @@ func CrawlerboardReject(service *services.CrawlerBoardService) fiber.Handler {
 			notifications.Failure[error] = strings.Join(output, ", ")
 		}
 
-		err = utils.Render(c, templates.CrawlerboardEntries(submissions, (c.Value("auth")).(bool)))
-		if err != nil {
-			log.Error(err)
-			return fiber.NewError(fiber.StatusInternalServerError)
-		}
-
 		return utils.Render(c, templates.Notify(notifications))
 	}
 }
@@ -298,16 +290,19 @@ func CrawlerboardAccept(service *services.CrawlerBoardService) fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
-		submissions, successful, failed, err := service.AcceptSubmissions(c.Context(), &data.Submissions, req.Order, req.Page, req.Limit)
+		successful, failed, err := service.AcceptSubmissions(c.Context(), &data.Submissions, req.Order, req.Page, req.Limit)
 		if err != nil {
 			log.Error(err)
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
+		c.Set("HX-Trigger", "crawlerboard-updated")
+
 		if len(*successful) != 0 && len(*failed) != 0 {
 			c.Status(fiber.StatusMultiStatus)
 		} else if _, ok := (*failed)[services.NotFoundUrls]; ok {
 			c.Status(fiber.StatusNotFound)
+			c.Set("HX-Trigger", "")
 		}
 
 		if c.Get("accept") == "application/json" {
@@ -326,12 +321,6 @@ func CrawlerboardAccept(service *services.CrawlerBoardService) fiber.Handler {
 
 		for error, output := range *failed {
 			notifications.Failure[error] = strings.Join(output, ", ")
-		}
-
-		err = utils.Render(c, templates.CrawlerboardEntries(submissions, (c.Value("auth")).(bool)))
-		if err != nil {
-			log.Error(err)
-			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
 		return utils.Render(c, templates.Notify(notifications))

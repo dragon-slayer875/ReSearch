@@ -125,7 +125,7 @@ func (cb *CrawlerBoardService) AddSubmissions(ctx context.Context, submissions *
 	return &successful, &failureSubmissionMap, nil
 }
 
-func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submissionsToAccept *[]string, order string, page, limit int) (*[]string, *[]string, *map[string][]string, error) {
+func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submissionsToAccept *[]string, order string, page, limit int) (*[]string, *map[string][]string, error) {
 	successful := make([]string, 0, len(*submissionsToAccept))
 	failureSubmissionMap := make(map[string][]string, 1)
 
@@ -136,14 +136,9 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 		remCmds[idx] = pipe.ZRem(ctx, redis.CrawlerboardKey, submission)
 	}
 
-	getCmd := pipe.ZRevRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page))
-	if order == "asc" {
-		getCmd = pipe.ZRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page))
-	}
-
 	_, err := pipe.Exec(ctx)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	notFound := make([]string, 0, len(*submissionsToAccept))
@@ -154,7 +149,7 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 	for idx, cmd := range remCmds {
 		val, err := cmd.Result()
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 
 		if val == 0 {
@@ -176,13 +171,8 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 		failureSubmissionMap[NotFoundUrls] = notFound
 	}
 
-	submissions, err := getCmd.Result()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
 	if len(domainQueueMembers) == 0 {
-		return &submissions, &successful, &failureSubmissionMap, nil
+		return &successful, &failureSubmissionMap, nil
 	}
 
 	acceptPipe := cb.redisClient.TxPipeline()
@@ -198,26 +188,26 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 
 	_, err = acceptPipe.Exec(ctx)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	if err = domainsAddCmd.Err(); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	for cmd, urls := range pushCmdsAndUrlsMap {
 		_, err := cmd.Result()
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 
 		successful = append(successful, utils.ToStringSlice(urls)...)
 	}
 
-	return &submissions, &successful, &failureSubmissionMap, nil
+	return &successful, &failureSubmissionMap, nil
 }
 
-func (cb *CrawlerBoardService) RejectAndGetSubmissions(ctx context.Context, submissionsToReject *[]string, order string, page, limit int) (*[]string, *[]string, *map[string][]string, error) {
+func (cb *CrawlerBoardService) RejectSubmissions(ctx context.Context, submissionsToReject *[]string, order string, page, limit int) (*[]string, *map[string][]string, error) {
 	successful := make([]string, 0, len(*submissionsToReject))
 	failureSubmissionMap := make(map[string][]string, 1)
 
@@ -228,14 +218,9 @@ func (cb *CrawlerBoardService) RejectAndGetSubmissions(ctx context.Context, subm
 		remCmds[idx] = pipe.ZRem(ctx, redis.CrawlerboardKey, submission)
 	}
 
-	getCmd := pipe.ZRevRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page))
-	if order == "asc" {
-		getCmd = pipe.ZRange(ctx, redis.CrawlerboardKey, int64(limit*(page-1)), int64(limit*page))
-	}
-
 	_, err := pipe.Exec(ctx)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	notFound := make([]string, 0, len(*submissionsToReject))
@@ -243,7 +228,7 @@ func (cb *CrawlerBoardService) RejectAndGetSubmissions(ctx context.Context, subm
 	for idx, cmd := range remCmds {
 		val, err := cmd.Result()
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 
 		if val == 0 {
@@ -257,6 +242,5 @@ func (cb *CrawlerBoardService) RejectAndGetSubmissions(ctx context.Context, subm
 		failureSubmissionMap[NotFoundUrls] = notFound
 	}
 
-	submissions, err := getCmd.Result()
-	return &submissions, &successful, &failureSubmissionMap, err
+	return &successful, &failureSubmissionMap, err
 }
