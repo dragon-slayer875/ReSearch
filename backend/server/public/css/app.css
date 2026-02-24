@@ -1,3 +1,44 @@
+:root {
+	--bg-color: floralwhite;
+	--accent-color: antiquewhite;
+	--font-color: black;
+	--font-opposite: white;
+	--interaction-color: #54BCD4;
+	--interaction-border-color: black;
+	--interaction-font-color: black;
+	--shadow-color: black;
+	--search-result-url-color: green;
+	--search-result-title-color: #007bff;
+	--outline-color: black;
+	--disabled-color: lightgray;
+	--search-pagination-primary: palevioletred;
+	--checkbox-bg-color: #9F9FED;
+	--crawlerboard-reject-btn: #F97777;
+	--crawlerboard-accept-btn: #48CB57;
+	--toast-secondary-color: black;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg-color: #302000;
+		--accent-color: #452b09;
+		--font-color: #c8c4bd;
+		--font-opposite: #2b2a33;
+		--interaction-color: #247b8f;
+		--interaction-border-color: #8c8273;
+		--interaction-font-color: white;
+		--shadow-color: white;
+		--search-result-url-color: #72ff72;
+		--search-result-title-color: #33a2ff;
+		--outline-color: #8c8273;
+		--disabled-color: #313537;
+		--search-pagination-primary: #7f203f;
+		--checkbox-bg-color: #131365;
+		--crawlerboard-reject-btn: #820606;
+		--crawlerboard-accept-btn: #2a964e;
+	}
+}
+
 * {
 	box-sizing: border-box;
 }
@@ -8,7 +49,8 @@ body {
 	font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
 	display: flex;
 	flex-direction: column;
-	background-color: floralwhite;
+	background-color: var(--bg-color);
+	color: var(--font-color);
 }
 
 h1,
@@ -29,12 +71,11 @@ main {
 }
 
 button {
-	height: 100%;
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	padding: 0.5rem 1rem;
-	border: 1px solid black;
+	padding: 0.5rem 1rem !important;
+	border: 1px solid var(--outline-color);
 	cursor: pointer;
 	transition: box-shadow 0.5s;
 }
@@ -44,23 +85,23 @@ button:active,
 button:hover,
 button:focus {
 	outline: 0;
-	box-shadow: 0.1rem 0.1rem black;
+	box-shadow: 0.1rem 0.1rem var(--font-color);
 }
 
 .header {
 	position: sticky;
 	top: 0;
-	border-bottom: 1px solid black;
+	border-bottom: 1px solid var(--font-color);
 	display: flex;
 	padding: 2rem;
 	gap: 2rem;
 	z-index: 5;
-	background-color: floralwhite;
+	background-color: var(--bg-color);
 }
 
 .logo {
 	font-weight: 200;
-	color: black;
+	color: var(--font-color);
 	display: flex;
 	justify-content: center;
 	align-items: center;
@@ -81,16 +122,16 @@ button:focus {
 }
 
 .logo::before {
-	background-color: black;
+	background-color: var(--font-color);
 }
 
 .logo:hover,
 .logo:focus {
-	color: white;
+	color: var(--font-opposite);
 }
 
 .logo:focus {
-	background-color: black;
+	background-color: var(--font-color);
 	outline: none;
 }
 
@@ -103,9 +144,11 @@ button:focus {
 input[type="text"],
 input[type="url"],
 input[type="password"] {
+	color: inherit;
+	background-color: var(--font-opposite);
 	flex: 1;
 	border: 0;
-	outline: 1px solid black;
+	outline: 1px solid var(--outline-color);
 	padding: 0 1rem;
 	width: 500px;
 }
@@ -116,25 +159,32 @@ input[type="url"]:focus,
 input[type="url"]:hover,
 input[type="password"]:focus,
 input[type="password"]:hover {
-	outline: 2px solid black;
+	outline: 2px solid var(--outline-color);
 }
 
 .text-action-btn {
-	background-color: pink;
+	background-color: var(--interaction-color);
 }
 
 a {
+	color: inherit;
 	text-decoration: none;
 }
 
 .result-title,
 #suggestion {
-	color: #007bff;
+	color: var(--search-result-title-color);
 }
+
+a:visited>.result-title,
+a:visited>#suggestion {
+	color: mediumpurple;
+}
+
 
 .result-title::before,
 #suggestion::before {
-	background-color: #007bff;
+	background-color: var(--search-result-title-color);
 }
 
 .result-title,
@@ -180,8 +230,17 @@ a:focus>.result-title,
 .logo:focus,
 #suggestion:hover,
 #suggestion:focus {
-	color: white;
 	outline: none;
+}
+
+
+a:hover>.result-title,
+a:focus>.result-title,
+a:visited>#suggestion:hover,
+a:visited>#suggestion:focus,
+#suggestion:hover,
+#suggestion:focus {
+	color: white;
 }
 
 a:focus>.result-title,
@@ -190,7 +249,7 @@ a:focus>.result-title,
 }
 
 .result-url {
-	color: green;
+	color: var(--search-result-url-color);
 	display: block;
 	overflow-x: hidden;
 	text-overflow: ellipsis;
@@ -200,7 +259,7 @@ a:focus>.result-title,
 }
 
 .result-description {
-	color: #323232;
+	color: var(--font-color);
 }
 
 table {
@@ -215,6 +274,13 @@ tbody {
 	overflow: auto;
 }
 
+tbody,
+thead,
+tfoot {
+	padding: 1rem;
+	border: 1px solid;
+}
+
 tbody {
 	display: flex;
 	flex-direction: column;
@@ -226,7 +292,14 @@ tbody {
 thead {
 	position: sticky;
 	top: 0;
-	background-color: antiquewhite;
+	background-color: var(--accent-color);
+}
+
+th label {
+	display: flex;
+	gap: 1rem;
+	padding: 0rem 1rem;
+	align-items: center;
 }
 
 td,
@@ -240,31 +313,37 @@ td {
 
 tr {
 	justify-content: center;
-	border: 1px solid;
 }
 
-td:has(input[type="checkbox"]:checked) {
-	background-color: skyblue;
+tbody tr {
+	border: 1px solid;
 }
 
 input[type="checkbox"] {
 	appearance: none;
 	-webkit-appearance: none;
 	-moz-appearance: none;
-	border: 1px solid black;
+	border: 1px solid var(--font-color);
 	width: 17px;
 	height: 17px;
 	cursor: pointer;
+	margin: 0;
 }
 
 input[type=checkbox]:checked {
 	background: url("data:image/gif;base64,R0lGODlhCwAKAIABAP////3cnSH5BAEKAAEALAAAAAALAAoAAAIUjH+AC73WHIsw0UCjglraO20PNhYAOw==") 2px 3px no-repeat;
+	background-color: var(--checkbox-bg-color);
+}
+
+select,
+button {
+	background-color: var(--interaction-color);
+	border: 1px solid var(--interaction-border-color);
+	color: var(--interaction-font-color);
+	padding: 0.5rem;
 }
 
 select {
-	background-color: pink;
-	padding: 0.5rem 1rem;
-	border: 1px solid black;
 	transition: box-shadow 0.5s;
 }
 
@@ -273,7 +352,7 @@ select:active,
 select:hover {
 	cursor: pointer;
 	outline: none;
-	box-shadow: 0.1rem 0.1rem black;
+	box-shadow: 0.1rem 0.1rem var(--font-color);
 }
 
 #crawlerboard-container {
@@ -288,7 +367,14 @@ select:hover {
 
 .crawlerboard-action-btn {
 	flex: 1;
+}
 
+#crawlerboard-accept-btn {
+	background-color: var(--crawlerboard-accept-btn);
+}
+
+#crawlerboard-reject-btn {
+	background-color: var(--crawlerboard-reject-btn);
 }
 
 #toast-container {
@@ -304,8 +390,9 @@ select:hover {
 
 .toast {
 	padding: 1rem 3rem;
-	box-shadow: 0.3rem 0.3rem;
-	border: 3px solid;
+	color: var(--toast-secondary-color);
+	box-shadow: 0.3rem 0.3rem var(--toast-secondary-color);
+	border: 3px solid var(--toast-secondary-color);
 	background-color: whitesmoke;
 }
 
@@ -361,7 +448,7 @@ select:hover {
 
 .pagination>a {
 	color: palevioletred;
-	background-color: floralwhite;
+	background-color: var(--bg-color);
 	border: 2px solid palevioletred;
 	aspect-ratio: 1/1;
 	display: flex;
@@ -372,12 +459,12 @@ select:hover {
 }
 
 .pagination>a:hover {
-	color: floralwhite;
+	color: var(--bg-color);
 	background-color: palevioletred;
 }
 
 #current-page {
-	color: floralwhite;
+	color: var(--bg-color);
 	background-color: palevioletred;
 }
 
@@ -396,9 +483,9 @@ select:hover {
 	.header {
 		bottom: 0;
 		order: 1;
-		border-top: 1px solid black;
+		border-top: 1px solid var(--font-color);
 		border-bottom: 0;
-		padding-top: 1rem;
+		padding: 1rem;
 		flex-direction: column;
 	}
 
@@ -431,6 +518,21 @@ select:hover {
 	#crawlerboard-container {
 		justify-content: end;
 	}
+
+	th label {
+		padding: 0rem 1rem;
+	}
+
+	tbody,
+	thead,
+	tfoot {
+		padding: 0.5rem;
+	}
+
+	tfoot label {
+		display: flex;
+		flex-direction: column;
+	}
 }
 
 .result-description {
@@ -443,8 +545,9 @@ select:hover {
 }
 
 .disabled {
-	background-color: lightgray !important;
+	background-color: var(--disabled-color) !important;
 	box-shadow: 0 0;
+	color: gray;
 }
 
 .disabled:hover,

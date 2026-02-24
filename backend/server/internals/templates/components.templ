@@ -16,6 +16,10 @@ templ base(title string) {
 			<script src="/js/htmx.min.js"></script>
 			<script src="/js/htmx-classes.js"></script>
 			<script defer src="/js/alpine.min.js"></script>
+			<script>
+		// use for debugging
+		//htmx.logAll();
+	</script>
 			<meta
 				name="htmx-config"
 				content='{
@@ -29,9 +33,6 @@ templ base(title string) {
         ]
     }'
 			/>
-			<script>
-		htmx.logAll();
-	</script>
 			<link rel="stylesheet" href="/css/app.css"/>
 		</head>
 		<body>
@@ -189,28 +190,26 @@ templ crawlerboard(data *utils.CrawlerboardPageData) {
 				if data.Admin {
 					<div style="display: flex; width: 100%;  gap: 1rem;">
 						<button
+							id="crawlerboard-accept-btn"
 							class="crawlerboard-action-btn"
-							style="background-color: #48CB57;"
 							type="button"
 							:disabled=" selected.length ? false : true"
 							:class=" selected.length ? '': 'disabled'"
 							hx-confirm="Accept selected urls?"
 							hx-post="/crawlerboard/accept"
-							hx-target="tbody"
-							hx-swap="outerHTML"
+							hx-swap="none"
 						>
 							Accept
 						</button>
 						<button
+							id="crawlerboard-reject-btn"
 							class="crawlerboard-action-btn"
-							style="background-color: #F97777;"
 							type="button"
 							:disabled=" selected.length ? false:true"
 							:class=" selected.length ? '': 'disabled'"
 							hx-confirm="Reject selected urls?"
 							hx-delete="/crawlerboard"
-							hx-target="tbody"
-							hx-swap="outerHTML"
+							hx-swap="none"
 						>
 							Reject
 						</button>
@@ -253,10 +252,10 @@ templ Notify(notifcations *utils.Notifications) {
 templ CrawlerboardTable(data *utils.CrawlerboardPageData) {
 	<table x-show="entries">
 		if data.Admin {
-			<thead class="box info tool-bar">
+			<thead>
 				<tr>
-					<th style="flex: 1; display: flex;">
-						<label style="display: flex; gap: 1rem; padding: 1rem 2rem;  align-items: center;">
+					<th style="flex: 1;">
+						<label>
 							<input
 								type="checkbox"
 								name="select-all-urls"
@@ -279,7 +278,7 @@ templ CrawlerboardTable(data *utils.CrawlerboardPageData) {
 				</tr>
 			</thead>
 		}
-		<tbody x-ref="crawlerboard_content" id="crawlerboard-content" style="padding: 1rem; border: 1px solid;">
+		<tbody x-ref="crawlerboard_content" id="crawlerboard-content">
 			for _, submission := range *data.Submissions {
 				@CrawlerboardEntry(submission, data.Admin)
 			}
@@ -287,7 +286,7 @@ templ CrawlerboardTable(data *utils.CrawlerboardPageData) {
 		</tbody>
 		<tfoot>
 			<tr>
-				<td style="padding: 1rem; align-items: center; justify-content: space-between;">
+				<td style="align-items: center; justify-content: space-between;">
 					<div style="display: flex; gap: 1rem;">
 						<label>
 							<span>Size</span>
@@ -326,7 +325,7 @@ templ CrawlerboardTable(data *utils.CrawlerboardPageData) {
 							</select>
 						</label>
 					</div>
-					<button style="background-color: pink;" form="table-controls">
+					<button form="table-controls">
 						Refresh
 					</button>
 				</td>
@@ -346,7 +345,7 @@ templ CrawlerboardEntry(submission string, admin bool) {
 					{ submission }
 				</span>
 			</label>
-			<a href={ submission } style="margin-right: 1rem; display: flex; color: black;">
+			<a href={ submission } style="margin-right: 1rem; display: flex;">
 				@externalLinkIcon()
 			</a>
 		</td>
