@@ -345,7 +345,7 @@ func (worker *Worker) processUrl(url, domain string, robotRules *RobotRules) err
 }
 
 func (worker *Worker) getNextDomain() (string, error) {
-	domainWithScore, err := worker.redisClient.BZPopMin(worker.workerCtx, 15*time.Second, redis.DomainPendingQueue).Result()
+	domainWithScore, err := worker.redisClient.BZPopMin(worker.workerCtx, 0, redis.DomainPendingQueue).Result()
 	if err != nil {
 		return "", err
 	}
@@ -354,7 +354,7 @@ func (worker *Worker) getNextDomain() (string, error) {
 }
 
 func (worker *Worker) getNextUrlForDomain(domain string) (string, error) {
-	result, err := worker.redisClient.BRPop(worker.workerCtx, 15*time.Second, redis.CrawlQueuePrefix+domain).Result()
+	result, err := worker.redisClient.BRPop(worker.workerCtx, 0, redis.CrawlQueuePrefix+domain).Result()
 	if err != nil {
 		return "", err
 	}
