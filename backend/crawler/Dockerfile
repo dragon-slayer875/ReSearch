@@ -7,9 +7,6 @@ COPY . .
 # Download dependencies
 RUN go mod download
 
-# Copy the application
-COPY . .
-
 # Build the application
 RUN go build -o research-crawler ./cmd/main.go
 
