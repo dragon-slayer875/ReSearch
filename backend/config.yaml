@@ -1,0 +1,35 @@
+crawler:
+  worker_count: 5
+  http_timeout: 0
+  max_idle_conns: 100
+  max_conns_per_host: 1
+  idle_conn_timeout: 30
+  user_agent: "Go-http-client/1.1"
+  restricted_mode: true
+
+indexer:
+  worker_count: 5
+
+tf_idf:
+  interval: "30m" # pattern is <number><unit> ns, us, ms, s, m, h
+  lock_duration: "30m"
+
+
+page_rank:
+  interval: "24h"
+  lock_duration: "1h"
+
+server:
+  port: "3000"
+
+logging:
+  level: "info" # "debug" / "info" / "warn" / "error" / "fatal"
+  encoding: "json" # "json" / "console"
+  output_paths: # "stderr" / "stdout" / "<absolute/file/path>" / "<relative/file/path>"
+    - "stderr"
+
+retryer:
+  max_retries: 5
+  initial_backoff: "500ms"
+  max_backoff: "30s"
+  backoff_multiplier: 2
