@@ -11,6 +11,7 @@ const (
 	DomainPendingQueue       = "crawl:domain_pending"
 	DictionaryKey            = "dictionary"
 	SearchResultsCachePrefix = "sr:"
+	CrawlQueuePrefix         = "cq:"
 )
 
 func New(ctx context.Context, url string) (*redis.Client, error) {

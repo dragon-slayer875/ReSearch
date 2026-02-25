@@ -183,7 +183,7 @@ func (cb *CrawlerBoardService) AcceptSubmissions(ctx context.Context, submission
 
 	for _, qMember := range domainQueueMembers {
 		domainUrls := domainsAndUrls[qMember]
-		pushCmdsAndUrlsMap[acceptPipe.LPush(ctx, "crawl_queue:"+qMember.Member.(string), domainUrls...)] = domainUrls
+		pushCmdsAndUrlsMap[acceptPipe.LPush(ctx, redis.CrawlQueuePrefix+qMember.Member.(string), domainUrls...)] = domainUrls
 	}
 
 	_, err = acceptPipe.Exec(ctx)
