@@ -19,7 +19,6 @@ import (
 
 	"github.com/go-redsync/redsync/v4"
 	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 )
@@ -275,11 +274,8 @@ workLoop:
 	pageRankMap.Range(func(url, rank any) bool {
 		sum += (rank).(float64)
 		pageRankUpdates = append(pageRankUpdates, database.UpdatePageRankParams{
-			Url: url.(string),
-			PageRank: pgtype.Float8{
-				Float64: rank.(float64),
-				Valid:   true,
-			},
+			Url:      url.(string),
+			PageRank: rank.(float64),
 		})
 		return true
 	})

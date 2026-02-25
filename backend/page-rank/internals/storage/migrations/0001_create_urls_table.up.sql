@@ -1,10 +1,11 @@
 CREATE TABLE urls (
-    id BIGSERIAL PRIMARY KEY,
-    url TEXT NOT NULL UNIQUE,
-	page_rank DOUBLE PRECISION,
-    fetched_at TIMESTAMP NOT NULL DEFAULT NOW()
+    url TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+	content_summary TEXT NOT NULL,
+	page_rank DOUBLE PRECISION NOT NULL DEFAULT 0,
+    crawled_at TIMESTAMP NOT NULL
 );
-CREATE INDEX idx_urls_url ON urls(url);
 
 CREATE TABLE robot_rules (
     domain TEXT PRIMARY KEY,
@@ -19,26 +20,19 @@ CREATE TABLE links (
     CONSTRAINT pk_links PRIMARY KEY ("from", "to"),
     CONSTRAINT fk_links FOREIGN KEY ("from") REFERENCES urls(url) ON DELETE CASCADE
 );
-
-CREATE TABLE url_data (
-    url_id BIGSERIAL PRIMARY KEY,
-    title TEXT NOT NULL,
-    description TEXT NOT NULL,
-	raw_content TEXT NOT NULL,
-
-    CONSTRAINT fk_url_data_id FOREIGN KEY (url_id) REFERENCES urls(id) ON DELETE CASCADE
-);
+CREATE INDEX idx_links_from ON links("from");
+CREATE INDEX idx_links_to ON links("to");
 
 CREATE TABLE word_data (
     word TEXT NOT NULL,
-    url_id BIGSERIAL NOT NULL,
+    url TEXT NOT NULL,
     position_bits BYTEA NOT NULL,
     term_frequency INTEGER NOT NULL,
-    idf DOUBLE PRECISION,
-    tf_idf DOUBLE PRECISION,
+    idf DOUBLE PRECISION NOT NULL DEFAULT 0,
+    tf_idf DOUBLE PRECISION NOT NULL DEFAULT 0,
 
-    CONSTRAINT pk_word_data PRIMARY KEY (word, url_id),
-    CONSTRAINT fk_word_data_url_id FOREIGN KEY (url_id) REFERENCES urls(id) ON DELETE CASCADE
+    CONSTRAINT pk_word_data PRIMARY KEY (word, url),
+    CONSTRAINT fk_word_data_url_id FOREIGN KEY (url) REFERENCES urls(url) ON DELETE CASCADE
 );
 CREATE INDEX idx_word_data_word ON word_data(word);
-CREATE INDEX idx_word_data_url_id ON word_data(url_id);
+CREATE INDEX idx_word_data_url_id ON word_data(url);

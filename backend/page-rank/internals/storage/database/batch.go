@@ -10,7 +10,6 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 var (
@@ -29,8 +28,8 @@ type UpdatePageRankBatchResults struct {
 }
 
 type UpdatePageRankParams struct {
-	Url      string        `json:"url"`
-	PageRank pgtype.Float8 `json:"page_rank"`
+	Url      string  `json:"url"`
+	PageRank float64 `json:"page_rank"`
 }
 
 func (q *Queries) UpdatePageRank(ctx context.Context, arg []UpdatePageRankParams) *UpdatePageRankBatchResults {
