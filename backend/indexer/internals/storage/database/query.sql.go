@@ -42,26 +42,3 @@ func (q *Queries) InsertUrlData(ctx context.Context, arg InsertUrlDataParams) er
 	)
 	return err
 }
-
-const insertWordData = `-- name: InsertWordData :exec
-INSERT INTO word_data (word, url, position_bits, term_frequency)
-VALUES ($1, $2, $3, $4)
-`
-
-type InsertWordDataParams struct {
-	Word          string `json:"word"`
-	Url           string `json:"url"`
-	PositionBits  []byte `json:"position_bits"`
-	TermFrequency int32  `json:"term_frequency"`
-}
-
-// Word Data Queries
-func (q *Queries) InsertWordData(ctx context.Context, arg InsertWordDataParams) error {
-	_, err := q.db.Exec(ctx, insertWordData,
-		arg.Word,
-		arg.Url,
-		arg.PositionBits,
-		arg.TermFrequency,
-	)
-	return err
-}
