@@ -6,8 +6,6 @@ COPY . .
 
 RUN go mod download
 
-COPY . .
-
 RUN go build -o research-indexer ./cmd/main.go
 
 # Run tests
