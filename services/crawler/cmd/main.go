@@ -133,6 +133,9 @@ func main() {
 		<-sigChan
 		logger.Info("Received shutdown signal, completing running jobs...")
 		cancel()
+		<-sigChan
+		logger.Info("Forcing shut down")
+		os.Exit(1)
 	}()
 
 	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient, postgresClient, httpClient, ctx, retryer, cfg.Crawler.RestrictedMode)
