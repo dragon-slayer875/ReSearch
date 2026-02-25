@@ -5,7 +5,7 @@ JOIN word_data wd ON u.url = wd.url
 WHERE wd.word = ANY($1::text[]);
 
 -- name: GetSearchResults :many
-SELECT u.url, u.title, u.description, u.content_summary, u.page_rank, COUNT(DISTINCT wd.word) as word_match_count, ARRAY_AGG(wd.word) matched_words, (0.5 * SUM(wd.tf_idf)::DOUBLE PRECISION + 0.5 * u.page_rank) AS combined_score
+SELECT u.url, u.title, u.description, u.content_summary, u.page_rank, COUNT(DISTINCT wd.word) as word_match_count, ARRAY_AGG(wd.word) matched_words, (0.5 * SUM(wd.tf_idf) + 0.5 * u.page_rank)::DOUBLE PRECISION AS combined_score
 FROM urls u JOIN word_data wd
 ON u.url = wd.url
 WHERE wd.word = ANY($1::text[])
