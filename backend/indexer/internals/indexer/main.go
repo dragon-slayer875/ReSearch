@@ -11,7 +11,6 @@ import (
 	"indexer/internals/storage/redis"
 	"indexer/internals/utils"
 	"sync"
-	"time"
 
 	redisLib "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -139,7 +138,7 @@ func (w *Worker) work() {
 }
 
 func (w *Worker) getNextUrl() (string, error) {
-	result, err := w.redisClient.BRPop(w.workerCtx, time.Second*20, redis.PendingQueue).Result()
+	result, err := w.redisClient.BRPop(w.workerCtx, 0, redis.PendingQueue).Result()
 	if err != nil {
 		return "", err
 	}
