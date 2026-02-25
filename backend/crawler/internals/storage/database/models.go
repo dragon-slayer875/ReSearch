@@ -24,7 +24,7 @@ type Url struct {
 	Title          string
 	Description    string
 	ContentSummary string
-	PageRank       pgtype.Float8
+	PageRank       float64
 	CrawledAt      pgtype.Timestamp
 }
 
@@ -33,6 +33,6 @@ type WordDatum struct {
 	Url           string
 	PositionBits  []byte
 	TermFrequency int32
-	Idf           pgtype.Float8
-	TfIdf         pgtype.Float8
+	Idf           float64
+	TfIdf         float64
 }
