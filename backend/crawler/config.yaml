@@ -5,6 +5,7 @@ crawler:
   max_conns_per_host: 1
   idle_conn_timeout: 30
   user_agent: "Go-http-client/1.1"
+  restricted_mode: true
 
 logging:
   level: "info" # "debug" / "info" / "warn" / "error" / "fatal"

@@ -36,7 +36,6 @@ func (h *HeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 func main() {
 	dev := flag.Bool("dev", false, "Enable development environment behavior")
-	restrictedMode := flag.Bool("restricted", false, "Restrict crawler to pages of same domains")
 	seedPath := flag.String("seed", "seed.txt", "Path to seed URLs file")
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
 	envPath := flag.String("env", ".env", "Path to env variables file")
@@ -134,12 +133,9 @@ func main() {
 		<-sigChan
 		logger.Info("Received shutdown signal, completing running jobs...")
 		cancel()
-		// look into this
-		<-sigChan
-		os.Exit(1)
 	}()
 
-	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient, postgresClient, httpClient, ctx, retryer, *restrictedMode)
+	Crawler := crawler.NewCrawler(logger, cfg.Crawler.WorkerCount, redisClient, postgresClient, httpClient, ctx, retryer, cfg.Crawler.RestrictedMode)
 
 	Crawler.PublishSeedUrls(*seedPath)
 

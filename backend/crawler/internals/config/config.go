@@ -18,6 +18,7 @@ type CrawlerConfig struct {
 	MaxConnsPerHost int    `mapstructure:"max_conns_per_host"`
 	IdleConnTimeout int    `mapstructure:"idle_conn_timeout"` // in seconds
 	UserAgent       string `mapstructure:"user_agent"`
+	RestrictedMode  bool   `mapstructure:"restricted_mode"`
 }
 
 type LoggingConfig struct {
@@ -45,6 +46,7 @@ func Load(configPath string) (*Config, error) {
 	viper.SetDefault("crawler.max_conns_per_host", 1)
 	viper.SetDefault("crawler.idle_conn_timeout", 0)             // in seconds
 	viper.SetDefault("crawler.user_agent", "Go-http-client/1.1") // default user agent
+	viper.SetDefault("crawler.restricted_mode", true)
 	viper.SetDefault("logging.level", "info")
 	viper.SetDefault("logging.encoding", "json")
 	viper.SetDefault("logging.output_paths", []string{"stderr"})
