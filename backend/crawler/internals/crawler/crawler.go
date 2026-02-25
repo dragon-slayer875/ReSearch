@@ -36,6 +36,7 @@ type Crawler struct {
 	httpClient     *http.Client
 	ctx            context.Context
 	retryer        *retry.Retryer
+	restrictedMode bool
 }
 
 type Worker struct {
@@ -46,9 +47,10 @@ type Worker struct {
 	crawlerCtx     context.Context
 	workerCtx      context.Context
 	retryer        *retry.Retryer
+	restrictedMode bool
 }
 
-func NewCrawler(logger *zap.Logger, workerCount int, redisClient *redis.RedisClient, postgresClient *postgres.Client, httpClient *http.Client, ctx context.Context, retryer *retry.Retryer) *Crawler {
+func NewCrawler(logger *zap.Logger, workerCount int, redisClient *redis.RedisClient, postgresClient *postgres.Client, httpClient *http.Client, ctx context.Context, retryer *retry.Retryer, restrictedMode bool) *Crawler {
 	return &Crawler{
 		logger,
 		workerCount,
@@ -57,10 +59,11 @@ func NewCrawler(logger *zap.Logger, workerCount int, redisClient *redis.RedisCli
 		httpClient,
 		ctx,
 		retryer,
+		restrictedMode,
 	}
 }
 
-func NewWorker(logger *zap.Logger, redisClient *redis.RedisClient, postgresClient *postgres.Client, httpClient *http.Client, crawlerCtx context.Context, workerCtx context.Context, retryer *retry.Retryer) *Worker {
+func NewWorker(logger *zap.Logger, redisClient *redis.RedisClient, postgresClient *postgres.Client, httpClient *http.Client, crawlerCtx context.Context, workerCtx context.Context, retryer *retry.Retryer, restrictedMode bool) *Worker {
 	return &Worker{
 		logger,
 		redisClient,
@@ -69,6 +72,7 @@ func NewWorker(logger *zap.Logger, redisClient *redis.RedisClient, postgresClien
 		crawlerCtx,
 		workerCtx,
 		retryer,
+		restrictedMode,
 	}
 }
 
@@ -93,7 +97,7 @@ func (crawler *Crawler) Start() {
 				crawler.logger.Fatal("Failed to initialize retryer for worker", zap.Error(err))
 			}
 
-			worker := NewWorker(workerLogger, redis.NewWithClient(crawler.redisClient.Client, retryer), postgres.NewWithPool(crawler.postgresClient.Pool, crawler.postgresClient.Queries, retryer), crawler.httpClient, crawler.ctx, context.Background(), retryer)
+			worker := NewWorker(workerLogger, redis.NewWithClient(crawler.redisClient.Client, retryer), postgres.NewWithPool(crawler.postgresClient.Pool, crawler.postgresClient.Queries, retryer), crawler.httpClient, crawler.ctx, context.Background(), retryer, crawler.restrictedMode)
 			worker.logger.Debug("Worker initialized")
 			worker.work()
 		}()

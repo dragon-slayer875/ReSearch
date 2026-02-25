@@ -131,6 +131,12 @@ func (worker *Worker) discoverAndQueueUrls(page *utils.CrawledPage, htmlBytes []
 							continue
 						}
 
+						if worker.restrictedMode {
+							if page.Domain != domain {
+								continue
+							}
+						}
+
 						uniqueUrls[normalizedURL] = struct{}{}
 						outlinks = append(outlinks, normalizedURL)
 

@@ -9,6 +9,7 @@ import (
 
 func NormalizeURL(parentUrl, newUrl string) (string, string, bool, error) {
 	allowed := false
+
 	pUrl, err := url.Parse(parentUrl)
 	if parentUrl != "" && err != nil {
 		return "", "", allowed, fmt.Errorf("could not parse parent URL: [%w]", err)
@@ -29,8 +30,6 @@ func NormalizeURL(parentUrl, newUrl string) (string, string, bool, error) {
 		return "", "", allowed, fmt.Errorf("url has no 'Host'")
 	}
 
-	domain := nUrl.Host
-
 	if nUrl.Scheme == "" {
 		nUrl.Scheme = "https"
 	}
@@ -46,7 +45,7 @@ func NormalizeURL(parentUrl, newUrl string) (string, string, bool, error) {
 		allowed = isUrlOfAllowedResourceType(ext)
 	}
 
-	return nUrl.Scheme + "://" + domain + nUrl.Path, domain, allowed, nil
+	return nUrl.Scheme + "://" + nUrl.Host + nUrl.Path, nUrl.Host, allowed, nil
 }
 
 func isUrlOfAllowedResourceType(ext string) bool {
