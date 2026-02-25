@@ -21,7 +21,7 @@ WORKDIR /app
 
 # Copy thhe built binary from the builder stage
 COPY --from=builder /app/research-server .
-COPY --from=builder /app/public ./public
+COPY public ./public
 
 # Run the application
 CMD ["./research-server"]
