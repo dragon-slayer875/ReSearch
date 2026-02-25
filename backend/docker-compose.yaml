@@ -1,40 +1,95 @@
 services:
-  reSearch-postgres:
+  research-postgres:
     image: postgres
     container_name: reSearch-postgres
     env_file: ".env"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  reSearch-redis:
+  research-redis:
     image: redis
     container_name: reSearch-redis
     env_file: ".env"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  reSearch-crawler:
-    build: ./crawler
-    env_file: ".env"
-    deploy:
-      replicas: 1
-
-  reSearch-indexer:
-    build: ./indexer
-    env_file: ".env"
-    deploy:
-      replicas: 1
-
-  reSearch-tf-idf:
-    build: ./tf-idf
-    env_file: ".env"
-    deploy:
-      replicas: 1
-
-  reSearch-page-rank:
-    build: ./page-rank
-    env_file: ".env"
-    deploy:
-      replicas: 1
-
-  reSearch-server:
+  research-server:
     build: ./server
     env_file: ".env"
+    depends_on:
+      research-postgres:
+        condition: service_healthy
+      research-redis:
+        condition: service_healthy
+    ports:
+      - 3000:3000
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    deploy:
+      replicas: 1
+
+  research-crawler:
+    build: ./crawler
+    env_file: ".env"
+    depends_on:
+      research-postgres:
+        condition: service_healthy
+      research-redis:
+        condition: service_healthy
+      research-server:
+        condition: service_started
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    deploy:
+      replicas: 1
+
+  research-indexer:
+    build: ./indexer
+    env_file: ".env"
+    depends_on:
+      research-postgres:
+        condition: service_healthy
+      research-redis:
+        condition: service_healthy
+      research-server:
+        condition: service_started
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    deploy:
+      replicas: 1
+
+  research-tf-idf:
+    build: ./tf-idf
+    env_file: ".env"
+    depends_on:
+      research-postgres:
+        condition: service_healthy
+      research-redis:
+        condition: service_healthy
+      research-server:
+        condition: service_started
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    deploy:
+      replicas: 1
+
+  research-page-rank:
+    build: ./page-rank
+    env_file: ".env"
+    depends_on:
+      research-postgres:
+        condition: service_healthy
+      research-redis:
+        condition: service_healthy
+      research-server:
+        condition: service_started
+    volumes:
+      - ./config.yaml:/app/config.yaml
     deploy:
       replicas: 1
