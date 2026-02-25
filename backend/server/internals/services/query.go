@@ -118,6 +118,9 @@ func (ss *SearchService) GetSuggestions(ctx context.Context, query string) (*[]s
 			// The err is left unchecked because the FuzzySearch only returns an error in two cases,
 			// either while using hamming distance or an invalid algorithm identifier
 			res, _ := edlib.FuzzySearch(word, indexedWords, edlib.Levenshtein)
+			if res == "" {
+				return &querySplit, suggestion, &[]string{}, nil
+			}
 			suggestedWords[idx] = res
 			wordsAndSuggestions[idx*2+1] = res
 		} else {
@@ -130,11 +133,11 @@ func (ss *SearchService) GetSuggestions(ctx context.Context, query string) (*[]s
 	return &querySplit, suggestion, &wordsAndSuggestions, nil
 }
 
-func (ss *SearchService) CacheQueryData(ctx context.Context, queryContentWords *[]string, queryResults *[]database.GetSearchResultsRow, totalPages int64, wordsAndSugesstions *[]string, useCache bool) error {
+func (ss *SearchService) CacheQueryData(ctx context.Context, queryContentWords *[]string, queryResults *[]database.GetSearchResultsRow, totalPages int64, wordsAndSugesstions *[]string, isFirstPage bool) error {
 	// Caching for one hour for now
 	pipe := ss.rClient.TxPipeline()
 
-	if useCache {
+	if isFirstPage && len(*queryResults) > 0 {
 		queryData := searchResultsCacheData{
 			Results:    *queryResults,
 			TotalPages: totalPages,
@@ -153,10 +156,12 @@ func (ss *SearchService) CacheQueryData(ctx context.Context, queryContentWords *
 		pipe.Set(ctx, queryKey, data, time.Hour)
 	}
 
-	pipe.HSetEXWithArgs(ctx, redis.DictionaryKey, &redisLib.HSetEXOptions{
-		ExpirationType: redisLib.HSetEXExpirationEX,
-		ExpirationVal:  3600,
-	}, *wordsAndSugesstions...)
+	if len(*wordsAndSugesstions) > 0 {
+		pipe.HSetEXWithArgs(ctx, redis.DictionaryKey, &redisLib.HSetEXOptions{
+			ExpirationType: redisLib.HSetEXExpirationEX,
+			ExpirationVal:  3600,
+		}, *wordsAndSugesstions...)
+	}
 
 	_, err := pipe.Exec(ctx)
 	return err

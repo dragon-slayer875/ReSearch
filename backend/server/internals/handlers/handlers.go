@@ -83,6 +83,7 @@ func ServeResults(service *services.SearchService) fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest)
 		}
 
+		isFirstPage := req.Page == 1
 		useCache := req.Page == 1 && req.Limit == 10
 
 		contentWords, suggestion, wordsAndSuggestions, err := service.GetSuggestions(c.Context(), req.Query)
@@ -97,8 +98,9 @@ func ServeResults(service *services.SearchService) fiber.Handler {
 			return fiber.NewError(fiber.StatusInternalServerError)
 		}
 
+		ctx := c.Context()
 		go func() {
-			err = service.CacheQueryData(c.Context(), contentWords, query_results, totalPages, wordsAndSuggestions, useCache)
+			err = service.CacheQueryData(ctx, contentWords, query_results, totalPages, wordsAndSuggestions, isFirstPage)
 			if err != nil {
 				log.Error(err)
 			}

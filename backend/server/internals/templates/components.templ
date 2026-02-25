@@ -85,16 +85,18 @@ templ searchResults(data *utils.ResultsPageData) {
 				<span>
 					Sorry nothing found for <b>{ data.Query }</b>.
 				</span>
+				if data.Suggestion != "" {
+					<span>
+						Show results for
+						<a href={ fmt.Sprintf("?query=%s", url.QueryEscape(data.Suggestion)) }>
+							<b id="suggestion">
+								{ data.Suggestion }
+							</b>
+						</a> instead?
+					</span>
+				}
 				<span>
-					Show results for
-					<a href={ fmt.Sprintf("?query=%s", url.QueryEscape(data.Suggestion)) }>
-						<b id="suggestion">
-							{ data.Suggestion }
-						</b>
-					</a> instead?
-				</span>
-				<span>
-					Or you can try adding resources to our crawlerboard
+					You can try adding resources to our crawlerboard
 				</span>
 			</div>
 		} else {
