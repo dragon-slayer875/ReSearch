@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"server/internals/config"
 	"server/internals/router"
+	"server/internals/storage/migrations"
 	"server/internals/storage/redis"
 	"server/internals/utils"
 	"syscall"
@@ -16,6 +18,7 @@ import (
 	fiberZap "github.com/gofiber/contrib/v3/zap"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/log"
+	"github.com/golang-migrate/migrate/v4"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
@@ -65,6 +68,12 @@ func main() {
 	}
 	logger.Debug("PostgreSQL client initialized")
 	defer dbPool.Close()
+
+	err = migrations.ApplyMigrations(ctx, dbPool, logger)
+	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		logger.Fatal("Failed to apply database migrations", zap.Error(err))
+	}
+	logger.Debug("Database migrations applied")
 
 	redisClient, err := redis.New(ctx, os.Getenv("REDIS_URL"))
 	if err != nil {
