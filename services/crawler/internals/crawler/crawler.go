@@ -354,7 +354,7 @@ func (worker *Worker) getNextDomain() (string, error) {
 }
 
 func (worker *Worker) getNextUrlForDomain(domain string) (string, error) {
-	result, err := worker.redisClient.BRPop(worker.workerCtx, 0, redis.CrawlQueuePrefix+domain).Result()
+	result, err := worker.redisClient.BRPop(worker.workerCtx, 5*time.Second, redis.CrawlQueuePrefix+domain).Result()
 	if err != nil {
 		return "", err
 	}
