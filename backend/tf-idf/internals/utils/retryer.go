@@ -8,12 +8,29 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/redis/go-redis/v9"
 )
 
 func IsRetryableNetworkError(err error) bool {
 	var netErr net.Error
 
 	return errors.As(err, &netErr)
+}
+
+func IsRetryableRedisError(err error) bool {
+	if errors.Is(err, redis.Nil) {
+		return false
+	}
+
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	if errors.Is(err, redis.ErrPoolTimeout) || errors.Is(err, redis.ErrPoolExhausted) {
+		return true
+	}
+
+	return IsRetryableNetworkError(err)
 }
 
 func IsRetryablePostgresError(err error) bool {

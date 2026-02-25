@@ -6,13 +6,17 @@ import (
 	"flag"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"tf-idf/internals/config"
 	"tf-idf/internals/retry"
 	"tf-idf/internals/storage/postgres"
+	"tf-idf/internals/storage/redis"
 	"tf-idf/internals/utils"
 	"time"
 
+	"github.com/go-redsync/redsync/v4"
+	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
 )
@@ -58,6 +62,12 @@ func main() {
 	}
 	logger.Info("Interval configured", zap.Duration("interval", interval))
 
+	lockDuration, err := time.ParseDuration(cfg.TfIdf.LockDuration)
+	if err != nil {
+		logger.Fatal("Failed to parse lock duration", zap.Error(err))
+	}
+	logger.Info("Lock duration configured", zap.Duration("lock duration", interval))
+
 	err = godotenv.Load(*envPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -77,6 +87,18 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to initialize retryer", zap.Error(err))
 	}
+
+	redisClient, err := redis.New(ctx, os.Getenv("REDIS_URL"), retryer)
+	if err != nil {
+		logger.Fatal("Failed to initialize redis client:", zap.Error(err))
+	}
+	logger.Debug("Redis client initialized")
+
+	defer func() {
+		if deferErr := redisClient.Close(); deferErr != nil {
+			logger.Error("Failed to close redis client", zap.Error(deferErr))
+		}
+	}()
 
 	postgresClient, err := postgres.New(ctx, os.Getenv("POSTGRES_URL"), retryer)
 	if err != nil {
@@ -105,6 +127,27 @@ func main() {
 			return
 
 		case <-ticker.C:
+			tfIdfKey := "tf-idf"
+
+			pool := goredis.NewPool(redisClient.Client)
+			rs := redsync.New(pool)
+
+			mutex := rs.NewMutex(tfIdfKey)
+			redsync.WithExpiry(lockDuration).Apply(mutex)
+
+			logger.Info("Acquiring work lock")
+
+			if err := mutex.Lock(); err != nil {
+				if strings.HasPrefix(err.Error(), "lock already taken") {
+					logger.Info("Tf-Idf is already being processed")
+					return
+				} else {
+					logger.Fatal("Failed to acquire work lock", zap.Error(err))
+				}
+			}
+
+			logger.Info("Work lock acquired")
+
 			logger.Info("Updating tf-idf")
 
 			err := postgresClient.UpdateTfIdf(ctx)
