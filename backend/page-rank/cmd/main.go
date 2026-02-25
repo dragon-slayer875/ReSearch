@@ -117,6 +117,7 @@ func main() {
 		<-sigChan
 		cancel()
 		<-sigChan
+		logger.Info("Force stopping")
 		os.Exit(1)
 	}()
 
@@ -189,7 +190,7 @@ func work(ctx context.Context, logger *zap.Logger, postgresClient *postgres.Clie
 
 	for _, item := range *result {
 		pageDataMap[item.Url] = &item
-		pageRankMap.Store(item.Url, 1/totalDiscoveredPages)
+		pageRankMap.Store(item.Url, float64(1))
 		if item.OutlinksCount == 0 {
 			sinks = append(sinks, item.Url)
 		}
@@ -197,7 +198,8 @@ func work(ctx context.Context, logger *zap.Logger, postgresClient *postgres.Clie
 
 	logger.Info("Initial ranks calculated")
 
-	dampingFactorAdditionConstant := (1 - 0.85) / totalDiscoveredPages
+	// todo: provide config option for this
+	dampingFactorAdditionConstant := (1 - 0.85)
 	totalExceptAnySink := totalDiscoveredPages - 1
 
 	// todo: replace explicit range looping with comparison between page ranks sum of previous iteration and current iteration
@@ -253,7 +255,7 @@ workLoop:
 						backlinkRankSum += (val).(float64) / float64((pageDataMap[backlinkStr]).OutlinksCount)
 					}
 
-					newPageRankVal := dampingFactorAdditionConstant + (0.85 * (sinkRankSum + backlinkRankSum))
+					newPageRankVal := dampingFactorAdditionConstant + totalDiscoveredPages*(0.85*(sinkRankSum+backlinkRankSum))
 					newPageRankMap.Store(url, newPageRankVal)
 
 					logger.Debug("Processed url", zap.String("url", url), zap.Float64("new rank", newPageRankVal), zap.Int("iteration", iter+1))
