@@ -3,7 +3,7 @@ CREATE TABLE urls (
     title TEXT NOT NULL,
     description TEXT NOT NULL,
 	content_summary TEXT NOT NULL,
-	page_rank DOUBLE PRECISION,
+	page_rank DOUBLE PRECISION NOT NULL DEFAULT 0,
     crawled_at TIMESTAMP NOT NULL
 );
 
@@ -28,8 +28,8 @@ CREATE TABLE word_data (
     url TEXT NOT NULL,
     position_bits BYTEA NOT NULL,
     term_frequency INTEGER NOT NULL,
-    idf DOUBLE PRECISION,
-    tf_idf DOUBLE PRECISION,
+    idf DOUBLE PRECISION NOT NULL DEFAULT 0,
+    tf_idf DOUBLE PRECISION NOT NULL DEFAULT 0,
 
     CONSTRAINT pk_word_data PRIMARY KEY (word, url),
     CONSTRAINT fk_word_data_url_id FOREIGN KEY (url) REFERENCES urls(url) ON DELETE CASCADE

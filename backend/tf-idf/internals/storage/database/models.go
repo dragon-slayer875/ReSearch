@@ -24,15 +24,15 @@ type Url struct {
 	Title          string           `json:"title"`
 	Description    string           `json:"description"`
 	ContentSummary string           `json:"content_summary"`
-	PageRank       pgtype.Float8    `json:"page_rank"`
+	PageRank       float64          `json:"page_rank"`
 	CrawledAt      pgtype.Timestamp `json:"crawled_at"`
 }
 
 type WordDatum struct {
-	Word          string        `json:"word"`
-	Url           string        `json:"url"`
-	PositionBits  []byte        `json:"position_bits"`
-	TermFrequency int32         `json:"term_frequency"`
-	Idf           pgtype.Float8 `json:"idf"`
-	TfIdf         pgtype.Float8 `json:"tf_idf"`
+	Word          string  `json:"word"`
+	Url           string  `json:"url"`
+	PositionBits  []byte  `json:"position_bits"`
+	TermFrequency int32   `json:"term_frequency"`
+	Idf           float64 `json:"idf"`
+	TfIdf         float64 `json:"tf_idf"`
 }
