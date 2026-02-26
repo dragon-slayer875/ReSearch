@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"indexer/internals/config"
 	"indexer/internals/contentProcessing"
@@ -109,8 +110,11 @@ func (w *Worker) work() {
 
 		crawledPageContent, err := w.redisClient.GetUrlContent(w.workerCtx, url)
 		// TODO: Handle nil errors
-		if err != nil {
+		if err != nil && !errors.Is(err, redisLib.Nil) {
 			w.logger.Fatal("Failed to get page contents. Add url to crawl queue again", zap.Error(err))
+		} else if errors.Is(err, redisLib.Nil) {
+			w.logger.Warn("Content not found for given url. Add url to crawl queue again", zap.Error(err))
+			continue
 		}
 
 		w.logger.Info("Processing page")
