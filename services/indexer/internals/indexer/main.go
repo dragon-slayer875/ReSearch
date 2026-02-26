@@ -108,37 +108,40 @@ func (w *Worker) work() {
 		loggerWithoutUrl := w.logger
 		w.logger = w.logger.With(zap.String("url", url))
 
-		crawledPageContent, err := w.redisClient.GetUrlContent(w.workerCtx, url)
-		// TODO: Handle nil errors
-		if err != nil && !errors.Is(err, redisLib.Nil) {
-			w.logger.Fatal("Failed to get page contents. Add url to crawl queue again", zap.Error(err))
-		} else if errors.Is(err, redisLib.Nil) {
-			w.logger.Warn("Content not found for given url. Add url to crawl queue again", zap.Error(err))
-			continue
-		}
-
-		w.logger.Info("Processing page")
-
-		processedPage, err := contentProcessing.ProcessCrawledPage(crawledPageContent)
-		if err != nil {
-			w.logger.Error("Error processing webpage", zap.Error(err))
-			continue
-		}
-
-		w.logger.Info("Creating postings list")
-
-		processedPage.PostingsList = utils.CreatePostingsList(processedPage.CleanTextContent, processedPage.Url)
-
-		w.logger.Info("Saving processed page")
-
-		if err := w.updateQueuesAndStorage(processedPage); err != nil {
-			w.logger.Fatal("Error updating queues for job", zap.Error(err))
-		}
-
-		w.logger.Info("Successfully indexed page")
+		w.processUrl(url)
 
 		w.logger = loggerWithoutUrl
 	}
+}
+
+func (w *Worker) processUrl(url string) {
+	crawledPageContent, err := w.redisClient.GetUrlContent(w.workerCtx, url)
+	if err != nil && !errors.Is(err, redisLib.Nil) {
+		w.logger.Fatal("Failed to get page contents. Add url to crawl queue again", zap.Error(err))
+	} else if errors.Is(err, redisLib.Nil) {
+		w.logger.Warn("Content not found for given url. Add url to crawl queue again", zap.Error(err))
+		return
+	}
+
+	w.logger.Info("Processing page")
+
+	processedPage, err := contentProcessing.ProcessCrawledPage(crawledPageContent)
+	if err != nil {
+		w.logger.Warn("Error processing webpage. Add to crawl queue again", zap.Error(err))
+		return
+	}
+
+	w.logger.Info("Creating postings list")
+
+	processedPage.PostingsList = utils.CreatePostingsList(processedPage.CleanTextContent, processedPage.Url)
+
+	w.logger.Info("Saving processed page")
+
+	if err := w.updateQueuesAndStorage(processedPage); err != nil {
+		w.logger.Fatal("Error updating queues and storage for job", zap.Error(err))
+	}
+
+	w.logger.Info("Successfully indexed page")
 }
 
 func (w *Worker) getNextUrl() (string, error) {
