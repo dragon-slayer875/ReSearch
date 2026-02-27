@@ -128,6 +128,17 @@ func (rc *RedisClient) BRPop(ctx context.Context, timeout time.Duration, keys ..
 	return redisCmd
 }
 
+func (rc *RedisClient) RPop(ctx context.Context, key string) *redis.StringCmd {
+	var redisCmd *redis.StringCmd
+
+	_ = rc.retryer.Do(ctx, func() error {
+		redisCmd = rc.Client.RPop(ctx, key)
+		return redisCmd.Err()
+	}, utils.IsRetryableRedisError)
+
+	return redisCmd
+}
+
 func (rc *RedisClient) Pipeline() redis.Pipeliner {
 	return rc.Client.Pipeline()
 }
