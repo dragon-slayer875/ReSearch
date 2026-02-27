@@ -4,7 +4,7 @@ services:
     container_name: reSearch-postgres
     env_file: ".env"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -19,8 +19,9 @@ services:
       timeout: 5s
       retries: 5
 
+  # Server applies postgres migrations and thus needs to run first
   research-server:
-    build: ./server
+    build: ./services/server
     env_file: ".env"
     depends_on:
       research-postgres:
@@ -35,7 +36,7 @@ services:
       replicas: 1
 
   research-crawler:
-    build: ./crawler
+    build: ./services/crawler
     env_file: ".env"
     depends_on:
       research-postgres:
@@ -50,7 +51,7 @@ services:
       replicas: 1
 
   research-indexer:
-    build: ./indexer
+    build: ./services/indexer
     env_file: ".env"
     depends_on:
       research-postgres:
@@ -65,7 +66,7 @@ services:
       replicas: 1
 
   research-tf-idf:
-    build: ./tf-idf
+    build: ./services/tf-idf
     env_file: ".env"
     depends_on:
       research-postgres:
@@ -80,7 +81,7 @@ services:
       replicas: 1
 
   research-page-rank:
-    build: ./page-rank
+    build: ./services/page-rank
     env_file: ".env"
     depends_on:
       research-postgres:
