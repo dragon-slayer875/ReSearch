@@ -2,7 +2,8 @@ version: "2"
 sql:
   - engine: "postgresql"
     queries: "query.sql"
-    schema: "migrations"
+    # INFO: This path is relative to the mounted docker volumes. Check the top level Makefile for more info
+    schema: "../migrations"
     gen:
       go:
         package: "database"
