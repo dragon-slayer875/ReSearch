@@ -106,7 +106,7 @@ func ServeResults(service *services.SearchService) fiber.Handler {
 			}
 		}()
 
-		if suggestion == req.Query {
+		if suggestion == strings.ToLower(req.Query) {
 			suggestion = ""
 		}
 

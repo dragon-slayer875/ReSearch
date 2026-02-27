@@ -117,7 +117,9 @@ func (ss *SearchService) GetSuggestions(ctx context.Context, query string) (*[]s
 		if suggestions[idx] == nil {
 			// The err is left unchecked because the FuzzySearch only returns an error in two cases,
 			// either while using hamming distance or an invalid algorithm identifier
-			res, _ := edlib.FuzzySearch(word, indexedWords, edlib.Levenshtein)
+
+			// Todo: make this configurable
+			res, _ := edlib.FuzzySearchThreshold(word, indexedWords, 0.65, edlib.Levenshtein)
 			if res == "" {
 				return &querySplit, suggestion, &[]string{}, nil
 			}
