@@ -21,7 +21,7 @@ The `services` directory houses all the services each with its own Dockerfile an
 
 - **Crawler**: Responsible for crawling the web, the crawler uses domain specific queues to enforce polite crawling and to discover and queue links in a breadth first manner. The crawled data is stored in Redis along with an outlink map of each crawled page.
 - **Indexer**: It processes the crawled pages from Redis and indexes them using an inverted index structure. It stores the data in a PostgreSQL database, which has relations between words and web pages and links between all the pages.
-- **Tf-Idf**: Calculates the term frequency-inverse document (tf-idf) frequency for each term in the indexed pages and updates the database relations. Tf-Idf scoring allows for determination of importance for term in context of all the indexed pages. 
+- **Tf-Idf**: Calculates the term frequency-inverse document frequency (tf-idf) for each term in the indexed pages and updates the database relations. Tf-Idf scoring allows for determination of importance for term in context of all the indexed pages. 
 - **Page Rank**: Uses the stored outlinks and backlinks data to calculate page rank, and thus determine the importance of each page using Google's original page rank algorithm. The updated ranks are stored in the PostgreSQL database.
 - **Server**: Processes user queries and provides search results from the indexed pages. Uses simple keywords based matching to find relevant pages, and a combination of tf-idf scores and page ranks to rank the results. Provides endpoints that serve both JSON and HTML data.
 
@@ -30,7 +30,7 @@ The `services` directory houses all the services each with its own Dockerfile an
 1. Crawlers crawl the web while respecting robots.txt for each domain, store the crawled content and push the url in a queue in Redis for indexing
 2. Indexer processes urls from the queue and updates the search index (in PostgreSQL).
 3. The Tf-Idf service runs at regular, configurable intervals and calculates tf-idf scores for each term in the indexed web pages.
-4. Page Rank service fetches all discovered (not neccessarily crawled) urls from the database, along with their backlinks and outlinks information and calculates their ranks at configured intervals as well.
+4. Page Rank service fetches all discovered (not necessarily crawled) urls from the database, along with their backlinks and outlinks information and calculates their ranks at configured intervals as well.
 5. The server provides API and web GUI interfaces to allow users to interact with the system. It handles query processing, returning results and the public crawlerboard.
 
 ## Usage
