@@ -39,10 +39,12 @@ The `services` directory houses all the services each with its own Dockerfile an
 - Install [Docker](https://www.docker.com/)  and [Docker Compose](https://docs.docker.com/compose/) for your platform.
 
 - All services:
-    - Create .env file in the services directory, containing same keys as the provided [.env.example](https://github.com/dragon-slayer875/reSearch/blob/77a060638c85c51e2dbfa618d96f92e46c31dc79/services/.env.example).
-    - Update the config.yaml file as needed.
-    - The [Docker Compose file](https://github.com/dragon-slayer875/reSearch/blob/77a060638c85c51e2dbfa618d96f92e46c31dc79/services/docker-compose.yaml) in the `services` directory can be used to deploy all the services in a single go.
-    - Change into the `services` directory and do `docker compose up` to run the services.
+    - Create .env file containing same keys as the provided [.env.example](https://github.com/dragon-slayer875/reSearch/blob/77a060638c85c51e2dbfa618d96f92e46c31dc79/services/.env.example).
+    - Update the provided config.yaml file as needed.
+    - The top level [Docker Compose file](https://github.com/dragon-slayer875/reSearch/blob/77a060638c85c51e2dbfa618d96f92e46c31dc79/services/docker-compose.yaml) can be used to deploy all the services by simply running the following command:
+    ```bash
+       docker compose up --build -d
+    ```
 
 - Individual services:
     - Each service can use values from the common [.env.example](https://github.com/dragon-slayer875/reSearch/blob/77a060638c85c51e2dbfa618d96f92e46c31dc79/services/.env.example). Even so, .env.example files are provided in each service's directory for convenience.
