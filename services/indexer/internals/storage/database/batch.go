@@ -69,3 +69,61 @@ func (b *BatchInsertLinksBatchResults) Close() error {
 	b.closed = true
 	return b.br.Close()
 }
+
+const batchInsertWordData = `-- name: BatchInsertWordData :batchexec
+INSERT INTO word_data (word, url, position_bits, term_frequency)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (word, url) DO UPDATE SET
+    position_bits = EXCLUDED.position_bits,
+    term_frequency = EXCLUDED.term_frequency
+`
+
+type BatchInsertWordDataBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type BatchInsertWordDataParams struct {
+	Word          string `json:"word"`
+	Url           string `json:"url"`
+	PositionBits  []byte `json:"position_bits"`
+	TermFrequency int32  `json:"term_frequency"`
+}
+
+// Batch operations
+func (q *Queries) BatchInsertWordData(ctx context.Context, arg []BatchInsertWordDataParams) *BatchInsertWordDataBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.Word,
+			a.Url,
+			a.PositionBits,
+			a.TermFrequency,
+		}
+		batch.Queue(batchInsertWordData, vals...)
+	}
+	br := q.db.SendBatch(ctx, batch)
+	return &BatchInsertWordDataBatchResults{br, len(arg), false}
+}
+
+func (b *BatchInsertWordDataBatchResults) Exec(f func(int, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		if b.closed {
+			if f != nil {
+				f(t, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		_, err := b.br.Exec()
+		if f != nil {
+			f(t, err)
+		}
+	}
+}
+
+func (b *BatchInsertWordDataBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}

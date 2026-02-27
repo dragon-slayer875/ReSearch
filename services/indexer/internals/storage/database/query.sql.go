@@ -11,16 +11,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type BatchInsertWordDataParams struct {
-	Word          string `json:"word"`
-	Url           string `json:"url"`
-	PositionBits  []byte `json:"position_bits"`
-	TermFrequency int32  `json:"term_frequency"`
-}
-
 const insertUrlData = `-- name: InsertUrlData :exec
 INSERT INTO urls (url, title, description, content_summary, crawled_at)
 VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (url) DO UPDATE SET crawled_at = EXCLUDED.crawled_at
 `
 
 type InsertUrlDataParams struct {

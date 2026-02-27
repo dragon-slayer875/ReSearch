@@ -97,7 +97,13 @@ func (pc *Client) UpdateStorage(ctx context.Context, wordDataBatch *[]database.B
 			return lastErr
 		}
 
-		_, lastErr = queriesWithTx.BatchInsertWordData(ctx, *wordDataBatch)
+		batchInsertResults := queriesWithTx.BatchInsertWordData(ctx, *wordDataBatch)
+		batchInsertResults.Exec(func(i int, err error) {
+			if err != nil {
+				lastErr = err
+				batchInsertResults.Close()
+			}
+		})
 		if lastErr != nil {
 			return lastErr
 		}
