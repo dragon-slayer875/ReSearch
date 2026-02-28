@@ -17,8 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-redsync/redsync/v4"
-	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	"github.com/jackc/pgx/v5"
 	redisLib "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -217,18 +215,13 @@ func (worker *Worker) work() {
 func (worker *Worker) processDomain(domain string) (err error) {
 	domainLockKey := "domain_lock:" + domain
 
-	pool := goredis.NewPool(worker.redisClient.Client)
-	rs := redsync.New(pool)
-
-	mutex := rs.NewMutex(domainLockKey)
-	redsync.WithExpiry(15 * time.Minute).Apply(mutex)
-
-	if err = mutex.Lock(); err != nil {
+	lock := redis.NewLock(domainLockKey, 15*time.Minute, worker.redisClient.Client, worker.retryer)
+	if err = lock.Lock(worker.workerCtx); err != nil {
 		return err
 	}
 
 	defer func() {
-		if _, unlockErr := mutex.Unlock(); unlockErr != nil {
+		if unlockErr := lock.Unlock(worker.workerCtx); unlockErr != nil {
 			err = unlockErr
 		}
 	}()
@@ -280,12 +273,12 @@ urlLoop:
 			worker.logger.Fatal("Failed to process URL", zap.Error(err))
 		}
 
-		_, err = mutex.Extend()
+		err = lock.Extend(worker.workerCtx)
 		if err != nil {
 			worker.logger.Fatal("Failed to extend mutex expiry", zap.Error(err))
 		}
 
-		worker.logger.Debug("Mutex extended", zap.Time("expiry", mutex.Until()))
+		worker.logger.Debug("Mutex extended", zap.Time("expiry", lock.Until()))
 
 		worker.logger = loggerWithoutUrl
 	}
